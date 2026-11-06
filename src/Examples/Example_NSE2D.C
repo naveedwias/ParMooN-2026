@@ -115,6 +115,16 @@ namespace oseen_aaj_layers
 #include "NSE_2D/Oseen_AAJ_layers.h"
 }
 
+namespace tnse_aaj_smooth
+{
+#include "NSE_2D/TNSE_AAJ_smooth.h"
+}
+
+namespace tnse_aaj_layers
+{
+#include "NSE_2D/TNSE_AAJ_layers.h"
+}
+
 //============================================================================
 
 Example_NSE2D::Example_NSE2D(const ParameterDatabase& user_input_parameter_db) 
@@ -714,6 +724,35 @@ case 7:
     oseen_aaj_layers::ExampleFile();
     break;
 
+  case 23: // transient SUPG/PSPG/grad-div Navier-Stokes, transient smooth
+    exact_solution.push_back( tnse_aaj_smooth::ExactU1 );
+    exact_solution.push_back( tnse_aaj_smooth::ExactU2 );
+    exact_solution.push_back( tnse_aaj_smooth::ExactP );
+    boundary_conditions.push_back( tnse_aaj_smooth::BoundCondition );
+    boundary_conditions.push_back( tnse_aaj_smooth::BoundCondition );
+    boundary_conditions.push_back( BoundConditionNoBoundCondition );
+    boundary_data.push_back( tnse_aaj_smooth::U1BoundValue );
+    boundary_data.push_back( tnse_aaj_smooth::U2BoundValue );
+    boundary_data.push_back( BoundaryValueHomogenous );
+    problem_coefficients = tnse_aaj_smooth::LinCoeffs;
+    tnse_aaj_smooth::ExampleFile();
+    break;
+
+  case 24: // transient SUPG/PSPG/grad-div Navier-Stokes, transient layers
+    exact_solution.push_back( tnse_aaj_layers::ExactU1 );
+    exact_solution.push_back( tnse_aaj_layers::ExactU2 );
+    exact_solution.push_back( tnse_aaj_layers::ExactP );
+    boundary_conditions.push_back( tnse_aaj_layers::BoundCondition );
+    boundary_conditions.push_back( tnse_aaj_layers::BoundCondition );
+    boundary_conditions.push_back( BoundConditionNoBoundCondition );
+    boundary_data.push_back( tnse_aaj_layers::U1BoundValue );
+    boundary_data.push_back( tnse_aaj_layers::U2BoundValue );
+    boundary_data.push_back( BoundaryValueHomogenous );
+    problem_coefficients = tnse_aaj_layers::LinCoeffs;
+    tnse_aaj_layers::ExampleFile();
+    break;
+
+
   default:
     ErrThrow("Unknown Navier-Stokes example",  example_code, " !");
   }
@@ -762,6 +801,8 @@ double Example_NSE2D::get_nu() const
   case 18:
   case 21:
   case 22:
+  case 23:
+  case 24:
     {
       nu = this->example_database["reynolds_number"];
       nu = 1./nu;

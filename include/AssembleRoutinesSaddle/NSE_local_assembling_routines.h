@@ -327,3 +327,17 @@ void NS_SPG_RightHandSide(
   double Mult, const double *coeff, const double *param, double hK,
   const double**OrigValues, const int *N_BaseFuncts, double ***,
   double **LocRhs, double delta0, double mu0, bool equal_order, bool oseen);
+
+/// @brief mass matrix of the SUPG/PSPG/grad-div semidiscretization of the
+/// time-dependent Navier-Stokes equations (transient extension of Afzal,
+/// Ahmed, John 2026): (u, v) + delta_K (u, (b.grad)v + grad q)_K, written
+/// into the blocks A11, A22 (velocity mass + SUPG) and B1, B2 (PSPG rows,
+/// with ParMooN's sign of the continuity row). With galerkin == true only
+/// (u, v) is assembled (used for the L2 norm of the time error estimate).
+/// b = coeff[4..5] for Oseen, b = param[0..1] for Navier-Stokes.
+template <int d>
+void NS_SPG_MassBlocks(
+  double Mult, const double *coeff, const double *param, double hK,
+  const double**OrigValues, const int *N_BaseFuncts, double ***LocMatrices,
+  double **, double delta0, double mu0, bool equal_order, bool oseen,
+  bool galerkin);

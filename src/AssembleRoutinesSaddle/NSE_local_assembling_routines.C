@@ -2180,3 +2180,71 @@ template void NS_SPG_RightHandSide<3>(
   const double**OrigValues, const int *N_BaseFuncts, double ***,
   double **LocRhs, double delta0, double mu0, bool equal_order, bool oseen);
 #endif
+
+template <int d>
+void NS_SPG_MassBlocks(
+  double Mult, const double *coeff, const double *param, double hK,
+  const double**OrigValues, const int *N_BaseFuncts, double ***LocMatrices,
+  double **, double delta0, double mu0, bool equal_order, bool oseen,
+  bool galerkin)
+{
+  if(d == 3)
+    ErrThrow("NS_SPG_MassBlocks: only 2D is implemented");
+  double ** MatrixA11 = LocMatrices[0];
+  double ** MatrixA22 = LocMatrices[d+1];
+  double ** MatrixB1 = LocMatrices[5];
+  double ** MatrixB2 = LocMatrices[6];
+  int N_U = N_BaseFuncts[0];
+  int N_P = N_BaseFuncts[1];
+  const double * u = OrigValues[0];
+  const double * u_x = OrigValues[2];
+  const double * u_y = OrigValues[3];
+  const double * p_x = OrigValues[2+d];
+  const double * p_y = OrigValues[3+d];
+  const double nu = coeff[0];
+  double b1, b2, sigma;
+  spg_convection(coeff, param, oseen, b1, b2, sigma);
+  double delta, mu;
+  compute_SPG_parameters(hK, nu, delta0, mu0, equal_order, delta, mu);
+  if(galerkin)
+    delta = 0.;
+
+  for(int i = 0; i < N_U; i++)
+  {
+    const double test = u[i];
+    const double bgradv = delta*(b1*u_x[i] + b2*u_y[i]);
+    for(int j = 0; j < N_U; j++)
+    {
+      const double val = Mult*u[j]*(test + bgradv);
+      MatrixA11[i][j] += val;
+      MatrixA22[i][j] += val;
+    }
+  }
+  if(delta > 0.)
+  {
+    for(int i = 0; i < N_P; i++)
+    {
+      const double test_x = Mult*delta*p_x[i];
+      const double test_y = Mult*delta*p_y[i];
+      for(int j = 0; j < N_U; j++)
+      {
+        MatrixB1[i][j] -= u[j]*test_x;
+        MatrixB2[i][j] -= u[j]*test_y;
+      }
+    }
+  }
+}
+
+#ifdef __2D__
+template void NS_SPG_MassBlocks<2>(
+  double Mult, const double *coeff, const double *param, double hK,
+  const double**OrigValues, const int *N_BaseFuncts, double ***LocMatrices,
+  double **, double delta0, double mu0, bool equal_order, bool oseen,
+  bool galerkin);
+#else
+template void NS_SPG_MassBlocks<3>(
+  double Mult, const double *coeff, const double *param, double hK,
+  const double**OrigValues, const int *N_BaseFuncts, double ***LocMatrices,
+  double **, double delta0, double mu0, bool equal_order, bool oseen,
+  bool galerkin);
+#endif

@@ -255,7 +255,16 @@ LocalAssembling<d>::LocalAssembling(ParameterDatabase param_db,
     case LocalAssembling_type::TimeNavierStokesMass:
     case LocalAssembling_type::NavierStokesLinear:
     case LocalAssembling_type::TimeNavierStokesExplNL:
-      if (disc_type.is("residual_based_vms"))
+      if (disc_type.is("supg_pspg_graddiv"))
+      {
+        // transient SUPG/PSPG/grad-div: the stiffness part is that of the
+        // steady method, the mass matrix contains the SUPG/PSPG test function
+        if(type == LocalAssembling_type::TimeNavierStokesMass)
+          this->set_parameters_for_tnse_spg_mass(false);
+        else
+          this->set_parameters_for_nse_spg(type);
+      }
+      else if (disc_type.is("residual_based_vms"))
       {
          this->set_parameters_for_tnse_residual_vms();
       }
@@ -1753,6 +1762,27 @@ void LocalAssembling<d>::set_parameters_for_nse_spg(LocalAssembling_type)
   this->local_assemblings_routines.push_back(
     std::bind(NS_SPG_RightHandSide<d>, _1, _2, _3, _4, _5, _6, _7, _8,
               delta0, mu0, equal_order, oseen));
+}
+
+// mass matrix of the transient SUPG/PSPG/grad-div method; with galerkin ==
+// true only the plain velocity mass matrix (u, v) is assembled
+template <int d>
+void LocalAssembling<d>::set_parameters_for_tnse_spg_mass(bool galerkin)
+{
+  this->set_parameters_for_nse_spg(LocalAssembling_type::NavierStokesAll);
+  this->local_assemblings_routines.clear();
+  this->N_Rhs = 0;
+  this->RhsSpace = {};
+  using namespace std::placeholders;
+  double delta0 = db["spg_delta0"];
+  double mu0 = db["spg_mu0"];
+  bool equal_order = (TDatabase::ParamDB->VELOCITY_SPACE
+                      == TDatabase::ParamDB->PRESSURE_SPACE);
+  bool oseen = (db["problem_type"].is(3) || TDatabase::ParamDB->FLOW_PROBLEM_TYPE==3
+                || TDatabase::ParamDB->INTERNAL_PROBLEM_LINEAR);
+  this->local_assemblings_routines.push_back(
+    std::bind(NS_SPG_MassBlocks<d>, _1, _2, _3, _4, _5, _6, _7, _8,
+              delta0, mu0, equal_order, oseen, galerkin));
 }
 
 //========================================================================

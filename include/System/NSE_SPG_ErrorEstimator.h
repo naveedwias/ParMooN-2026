@@ -65,6 +65,21 @@ class NSE_SPG_ErrorEstimator : public ErrorEstimator<2>
     void estimate(const Example_NSE2D& ex, const TFEVectFunct2D& u,
                   const TFEFunction2D& p);
 
+    /** @brief transient Navier-Stokes mode (adaptive SUPG/PSPG/grad-div
+     * method for the time-dependent Navier-Stokes equations, extension of
+     * Afzal, Ahmed, John 2026 in the manner of de Frutos et al. 2014):
+     * the discrete time derivative dt_u (same space as the velocity) is
+     * subtracted from f in the cell residual, the constants of the
+     * transient bound are used (320 delta_K in eta_res, 160 delta_K in
+     * eta_delta, 640 max delta in eta_div, 320/|U|^2 in eta_F with h_F,
+     * 320 d mu^2/delta^alpha in eta_mu), sigma_0 = 0, and the error norm is
+     * nu|grad e|^2 + sum mu_K |div e|^2 + sum delta_K |(U.grad)e_u + grad e_p|^2
+     * with the discrete velocity U as convection field. Pass nullptr to
+     * return to the steady setting. The pointer is only stored.
+     */
+    void set_transient(const TFEVectFunct2D* dt_u)
+    { time_derivative = dt_u; transient = (dt_u != nullptr); }
+
     void info() override;
 
     // global contributions (square roots of the sums over all cells/facets)
@@ -91,6 +106,8 @@ class NSE_SPG_ErrorEstimator : public ErrorEstimator<2>
     bool equal_order;
     bool is_nse;
     bool has_exact_solution;
+    const TFEVectFunct2D* time_derivative = nullptr;
+    bool transient = false;
     double eta_res, eta_div, eta_F, eta_delta, eta_mu;
     double error_spg;
     std::array<double, 5> error_parts;

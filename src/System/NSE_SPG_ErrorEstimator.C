@@ -177,9 +177,25 @@ void NSE_SPG_ErrorEstimator::estimate(const Example_NSE2D& ex,
     delta_max = std::max(delta_max, dK);
   }
   const int alpha = (nu < h_max && equal_order) ? 1 : 0;   // (23)
-  const double div_factor = equal_order ? 160.*delta_max
-                                        : 160.*delta_max/(h_max*h_max);
+  // constants of the steady bound (Afzal, Ahmed, John 2026, Theorem 1) and
+  // of the transient bound (adaptive SUPG/PSPG/grad-div for time-dependent
+  // Navier-Stokes), respectively
+  const double c_res = transient ? 320. : 40.;
+  const double c_delta = transient ? 160. : 40.;
+  const double c_div = transient ? 640. : 160.;
+  const double c_F = transient ? 320. : 40.;
+  const double c_mu = transient ? 320. : 40.;
+  const double sigma_0 = transient ? 0. : sigma0;
+  const double div_factor = equal_order ? c_div*delta_max
+                                        : c_div*delta_max/(h_max*h_max);
   const double dim = 2.;
+  const double* values_dt = (time_derivative != nullptr)
+                            ? time_derivative->GetValues() : nullptr;
+  if(time_derivative != nullptr
+     && time_derivative->GetFESpace2D() != u.GetFESpace2D())
+    ErrThrow("NSE_SPG_ErrorEstimator: the time derivative must live in the "
+             "velocity space");
+  std::vector<double> dt1(MaxN_QuadPoints_2D), dt2(MaxN_QuadPoints_2D);
 
   // ---------------------------------------------------------------------------
   // storage for values at quadrature points
@@ -260,6 +276,25 @@ void NSE_SPG_ErrorEstimator::estimate(const Example_NSE2D& ex,
         }
       }
     }
+    // time derivative of the velocity (transient Navier-Stokes)
+    if(values_dt != nullptr)
+    {
+      const BaseFunctions* bf = fe_u.GetBaseFunct();
+      int n_dof = fe_u.GetN_DOF();
+      const int* DOF = fe_space_u->GetGlobalDOF(cellIdx);
+      double** Orig = FEDatabase::GetOrigElementValues(*bf, MultiIndex2D::D00);
+      for(int j = 0; j < N_Points; ++j)
+      {
+        double v1 = 0., v2 = 0.;
+        for(int l = 0; l < n_dof; ++l)
+        {
+          v1 += values_dt[DOF[l]] * Orig[j][l];
+          v2 += values_dt[DOF[l] + length_u] * Orig[j][l];
+        }
+        dt1[j] = v1;
+        dt2[j] = v2;
+      }
+    }
     // pressure values and derivatives
     {
       const BaseFunctions* bf = fe_p.GetBaseFunct();
@@ -293,7 +328,12 @@ void NSE_SPG_ErrorEstimator::estimate(const Example_NSE2D& ex,
     {
       const double w = weights[j];
       const double* c = coeffs[j];
-      const double f1 = c[1], f2 = c[2];
+      double f1 = c[1], f2 = c[2];
+      if(values_dt != nullptr)
+      {
+        f1 -= dt1[j];
+        f2 -= dt2[j];
+      }
       double b1, b2, sigma;
       if(is_nse)
       {
@@ -330,7 +370,7 @@ void NSE_SPG_ErrorEstimator::estimate(const Example_NSE2D& ex,
         err_sigma += w * sigma * (eu1*eu1 + eu2*eu2);
         err_div += w * (eu1x + eu2y)*(eu1x + eu2y);
         err_p += w * epv*epv;
-        if(is_nse)
+        if(is_nse && !transient)
         {
           // norm ||.||_{spg,nse} of Section 5: delta_K ||grad q||^2
           err_supg += w * (epx*epx + epy*epy);
@@ -459,10 +499,19 @@ void NSE_SPG_ErrorEstimator::estimate(const Example_NSE2D& ex,
         b_max_F = std::max(b_max_F, std::sqrt(bb1*bb1 + bb2*bb2));
       }
       // weight of eta_F^2, Theorem 1 (C = 1)
-      double w1 = min_positive(hK/nu, (sigma0 > 0.) ? 1./(hK*sigma0) : 0.);
-      double w2 = min_positive(hK/nu, (sigma0 > 0.) ? 1./std::sqrt(nu*sigma0) : 0.);
-      double wb = (b_max_F > 0.) ? 40./(b_max_F*b_max_F) : 0.;
-      double wF = min_positive(w1 + w2, wb);
+      double wF;
+      if(transient)
+      {
+        double wb = (b_max_F > 0.) ? c_F/(b_max_F*b_max_F) : 0.;
+        wF = min_positive(hE/nu, wb);
+      }
+      else
+      {
+        double w1 = min_positive(hK/nu, (sigma_0 > 0.) ? 1./(hK*sigma_0) : 0.);
+        double w2 = min_positive(hK/nu, (sigma_0 > 0.) ? 1./std::sqrt(nu*sigma_0) : 0.);
+        double wb = (b_max_F > 0.) ? c_F/(b_max_F*b_max_F) : 0.;
+        wF = min_positive(w1 + w2, wb);
+      }
       double etaF2 = wF * rF;
       // interior facets are shared by two cells
       etaF_K += is_boundary ? etaF2 : 0.5*etaF2;
@@ -471,12 +520,12 @@ void NSE_SPG_ErrorEstimator::estimate(const Example_NSE2D& ex,
     // -------------------------------------------------------------------------
     // local estimator contributions, Theorem 1 with C = 1
     // -------------------------------------------------------------------------
-    double w_res = min_positive(min_positive((sigma0 > 0.) ? 1./sigma0 : 0.,
-                                             hK*hK/nu), 40.*deltaK);
+    double w_res = min_positive(min_positive((sigma_0 > 0.) ? 1./sigma_0 : 0.,
+                                             hK*hK/nu), c_res*deltaK);
     double eta_res2 = w_res * res_K;
     double eta_div2 = div_factor * divu_K;
-    double eta_delta2 = 40. * deltaK * res_K;
-    double w_mu = min_positive(40.*dim*muK*muK / ((alpha == 1) ? deltaK : 1.),
+    double eta_delta2 = c_delta * deltaK * res_K;
+    double w_mu = min_positive(c_mu*dim*muK*muK / ((alpha == 1) ? deltaK : 1.),
                                dim*muK*muK/nu);
     double eta_mu2 = w_mu * divu_K;
 
@@ -510,7 +559,7 @@ void NSE_SPG_ErrorEstimator::estimate(const Example_NSE2D& ex,
   if(has_exact_solution)
   {
     double e2 = error_parts[0] + error_parts[1] + error_parts[2] + error_parts[3];
-    if(is_nse)
+    if(is_nse && !transient)
       e2 += nu * error_parts[4]; // nu ||q||^2 in ||.||_{spg,nse}
     error_spg = std::sqrt(e2);
   }
@@ -522,7 +571,8 @@ void NSE_SPG_ErrorEstimator::info()
 {
   Output::print("SUPG/PSPG/grad-div residual estimator (Afzal, Ahmed, John 2026)");
   Output::print("  pairs: ", equal_order ? "equal order" : "inf-sup stable",
-                ", problem: ", is_nse ? "Navier-Stokes" : "Oseen",
+                ", problem: ", is_nse ? (transient ? "transient Navier-Stokes"
+                                                   : "Navier-Stokes") : "Oseen",
                 ", h = ", h_max, ", max delta_K = ", delta_max);
   Output::print("  eta        = ", std::setprecision(10), this->estimated_global_error);
   Output::print("  eta_K,res  = ", eta_res);
