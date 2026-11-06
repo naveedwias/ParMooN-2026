@@ -103,6 +103,7 @@ class NSE_SPG_ErrorEstimator : public ErrorEstimator<2>
 
   protected:
     double delta0, mu0, sigma0;
+    int error_quad_degree;
     bool equal_order;
     bool is_nse;
     bool has_exact_solution;

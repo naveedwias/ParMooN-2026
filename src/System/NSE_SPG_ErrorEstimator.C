@@ -105,6 +105,9 @@ ParameterDatabase NSE_SPG_ErrorEstimator::default_spg_estimator_database()
          "eta_{K,res} and eta_F; 0 means that the corresponding terms are "
          "dropped.", 0., 1.e10);
   db.add("problem_type", 3u, "3: Oseen (linear), 5: Navier-Stokes", 0u, 10u);
+  db.add("spg_error_quad_degree", 19, "polynomial degree of the quadrature "
+         "used for the exact error (solutions with layers need a high degree)",
+         1, 19);
   return db;
 }
 
@@ -118,6 +121,7 @@ NSE_SPG_ErrorEstimator::NSE_SPG_ErrorEstimator(const ParameterDatabase& param_db
   delta0 = local_db["spg_delta0"];
   mu0 = local_db["spg_mu0"];
   sigma0 = local_db["spg_estimator_sigma0"];
+  error_quad_degree = local_db["spg_error_quad_degree"];
   is_nse = local_db["problem_type"].is(5);
   equal_order = (TDatabase::ParamDB->VELOCITY_SPACE
                  == TDatabase::ParamDB->PRESSURE_SPACE);
@@ -218,6 +222,14 @@ void NSE_SPG_ErrorEstimator::estimate(const Example_NSE2D& ex,
   const double *weights_1d, *zeta_1d;
   qf1d->GetFormulaData(n_points_1d, weights_1d, zeta_1d);
   std::vector<double> X1d(n_points_1d), Y1d(n_points_1d);
+
+  // high order quadrature on the reference triangle for the exact error
+  int err_degree = error_quad_degree;
+  const TQuadFormula* qf_err = QuadratureFormulaDatabase::qf_from_degree(
+      err_degree, BFRefElements::BFUnitTriangle);
+  int n_err_points;
+  const double *w_err, *xi_err, *eta_err;
+  qf_err->GetFormulaData(n_err_points, w_err, xi_err, eta_err);
 
   TQuadFormula qf_ref(QuadratureFormula_type::BaryCenterTria); // dummy type
   TQuadFormula qf_orig(qf_ref);
@@ -356,25 +368,54 @@ void NSE_SPG_ErrorEstimator::estimate(const Example_NSE2D& ex,
       double divu = du1[j][1] + du2[j][2];
       divu_K += w * divu*divu;
 
-      if(has_exact_solution)
+    }
+
+    // -------------------------------------------------------------------------
+    // exact error on this cell with a high order quadrature (independent of
+    // the FE quadrature; layers need many points)
+    // -------------------------------------------------------------------------
+    if(has_exact_solution)
+    {
+      double x0 = cell->GetVertex(0)->GetX(), y0 = cell->GetVertex(0)->GetY();
+      double x1 = cell->GetVertex(1)->GetX(), y1 = cell->GetVertex(1)->GetY();
+      double x2 = cell->GetVertex(2)->GetX(), y2 = cell->GetVertex(2)->GetY();
+      if(cell->GetN_Vertices() != 3)
+        ErrThrow("NSE_SPG_ErrorEstimator: exact errors only on triangles");
+      double detJ = std::abs((x1-x0)*(y2-y0) - (x2-x0)*(y1-y0));
+      for(int j = 0; j < n_err_points; ++j)
       {
+        double xq = x0 + xi_err[j]*(x1-x0) + eta_err[j]*(x2-x0);
+        double yq = y0 + xi_err[j]*(y1-y0) + eta_err[j]*(y2-y0);
+        double w = w_err[j]*detJ;
+        double v1[3], v2[3], vp[3];
+        u1->FindGradientLocal(cell, cellIdx, xq, yq, v1);
+        u2->FindGradientLocal(cell, cellIdx, xq, yq, v2);
+        p.FindGradientLocal(cell, cellIdx, xq, yq, vp);
         double e1[10], e2[10], ep[10];
-        ex.get_exact(0)(X[j], Y[j], e1);
-        ex.get_exact(1)(X[j], Y[j], e2);
-        ex.get_exact(2)(X[j], Y[j], ep);
-        // errors: value, x-derivative, y-derivative
-        double eu1 = e1[0] - du1[j][0], eu1x = e1[1] - du1[j][1], eu1y = e1[2] - du1[j][2];
-        double eu2 = e2[0] - du2[j][0], eu2x = e2[1] - du2[j][1], eu2y = e2[2] - du2[j][2];
-        double epv = ep[0] - dp[j][0], epx = ep[1] - dp[j][1], epy = ep[2] - dp[j][2];
+        ex.get_exact(0)(xq, yq, e1);
+        ex.get_exact(1)(xq, yq, e2);
+        ex.get_exact(2)(xq, yq, ep);
+        double b1, b2, sigma;
+        if(is_nse)
+        {
+          b1 = v1[0]; b2 = v2[0]; sigma = 0.;
+        }
+        else
+        {
+          double cq[max_n_coeffs];
+          double* cqp[1] = {cq};
+          coeff_fct(1, &xq, &yq, nullptr, cqp);
+          b1 = cq[4]; b2 = cq[5]; sigma = cq[6];
+        }
+        double eu1 = e1[0] - v1[0], eu1x = e1[1] - v1[1], eu1y = e1[2] - v1[2];
+        double eu2 = e2[0] - v2[0], eu2x = e2[1] - v2[1], eu2y = e2[2] - v2[2];
+        double epv = ep[0] - vp[0], epx = ep[1] - vp[1], epy = ep[2] - vp[2];
         err_grad += w * (eu1x*eu1x + eu1y*eu1y + eu2x*eu2x + eu2y*eu2y);
         err_sigma += w * sigma * (eu1*eu1 + eu2*eu2);
         err_div += w * (eu1x + eu2y)*(eu1x + eu2y);
         err_p += w * epv*epv;
         if(is_nse && !transient)
-        {
-          // norm ||.||_{spg,nse} of Section 5: delta_K ||grad q||^2
           err_supg += w * (epx*epx + epy*epy);
-        }
         else
         {
           double s1 = b1*eu1x + b2*eu1y + epx;
