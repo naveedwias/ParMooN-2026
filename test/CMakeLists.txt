@@ -1,209 +1,142 @@
-# ========================================================================
-#     This file is part of ParMooN.
-# 
-#     ParMooN is free software: you can redistribute it and/or modify
-#     it under the terms of the GNU General Public License as published by
-#     the Free Software Foundation, either version 3 of the License, or
-#     (at your option) any later version.
-# 
-#     ParMooN is distributed in the hope that it will be useful,
-#     but WITHOUT ANY WARRANTY; without even the implied warranty of
-#     MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
-#     GNU General Public License for more details.
-# 
-#     You should have received a copy of the GNU General Public License
-#     along with ParMooN.  If not, see <http://www.gnu.org/licenses/>.
-# =======================================================================
-# PURPOSE :  configuration file for the ParMooN Version 1.1
-# AUTHOR  : Sashikumaar Ganesan, SERC, IISc Bangalore, India
-#			Clemens Bartsch, WIAS Berlin
-# DATE    : 05 June 2015
-# ========================================================================
+# =============================================================================
+# Unit tests of ParMooN.
+#
+# Every test is a single source file test/<name>.c++ with its own main(). A test
+# is compiled against the 2D library, the 3D library, or both (then two
+# executables <name>_2d and <name>_3d are created). The 2D library is not built
+# in the MPI configuration, so 2D tests exist only for the sequential/OpenMP
+# builds. Tests are registered with ctest; 'make check' builds and runs them.
+#
+# This file was reconstructed after the original one had been lost; the
+# assignment of tests to space dimensions was determined by compiling each test
+# against both configurations.
+# =============================================================================
 
-# normally no need to alter any thing in this file
-# please DO NOT modify unless it is necessary
-# beginners are advised NOT to alter anything of the below contents
-# ========================================================================
+set(parmoon_tests "")
 
-cmake_minimum_required(VERSION 3.5)
+# add one test executable linked against the library of dimension 'dim'
+# (2 or 3). The executable is named <name>_<dim>d, the ctest entry likewise.
+macro(add_parmoon_test name dim)
+  set(_target ${name}_${dim}d)
+  add_executable(${_target} "${CMAKE_CURRENT_SOURCE_DIR}/${name}.c++")
+  set_target_properties(${_target} PROPERTIES
+                        OUTPUT_NAME ${_target}_${PARMOON_PARALLEL_TYPE})
+  target_link_libraries(${_target} PUBLIC
+                        parmoon_${dim}d_${PARMOON_PARALLEL_TYPE})
+  if(PARMOON_USING_MPI)
+    add_test(NAME ${_target}
+             COMMAND ${MPIEXEC} ${MPIEXEC_NUMPROC_FLAG} 2 $<TARGET_FILE:${_target}>)
+  else()
+    add_test(NAME ${_target} COMMAND $<TARGET_FILE:${_target}>)
+  endif()
+  list(APPEND parmoon_tests ${_target})
+endmacro(add_parmoon_test)
 
-project(ParMooN VERSION 2.0)
-enable_language(Fortran)
-include(FortranCInterface) 
-#get_filename_component (Fortran_COMPILER_NAME ${CMAKE_Fortran_COMPILER} gfortran)
+# tests which compile with both libraries
+macro(add_parmoon_test_2d_3d name)
+  if(NOT PARMOON_USING_MPI)
+    add_parmoon_test(${name} 2)
+  endif()
+  add_parmoon_test(${name} 3)
+endmacro(add_parmoon_test_2d_3d)
 
-# Set a default build type if none was specified
-if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
-  message(STATUS "Setting build type to 'Debug' as none was specified.")
-  set(CMAKE_BUILD_TYPE Release CACHE STRING "Choose the type of build." FORCE)
-  # Set the possible values of build type for cmake-gui
-  set_property(CACHE CMAKE_BUILD_TYPE PROPERTY STRINGS "Debug" "Release"
-    "MinSizeRel" "RelWithDebInfo")
+# tests which only compile with the 2D library (sequential/OpenMP builds only)
+macro(add_parmoon_test_2d name)
+  if(NOT PARMOON_USING_MPI)
+    add_parmoon_test(${name} 2)
+  endif()
+endmacro(add_parmoon_test_2d)
+
+# tests which only compile with the 3D library
+macro(add_parmoon_test_3d name)
+  add_parmoon_test(${name} 3)
+endmacro(add_parmoon_test_3d)
+
+# dimension independent tests: built once, against the 2D library where it
+# exists (sequential/OpenMP builds), otherwise against the 3D library
+macro(add_parmoon_test_any name)
+  if(PARMOON_USING_MPI)
+    add_parmoon_test(${name} 3)
+  else()
+    add_parmoon_test(${name} 2)
+  endif()
+endmacro(add_parmoon_test_any)
+
+###############################################################################
+# dimension independent tests (linear algebra, database, ...); built once
+add_parmoon_test_any(block_matrix_test)
+add_parmoon_test_any(block_vector_test)
+add_parmoon_test_any(dense_matrix_test)
+add_parmoon_test_any(direct_solver_test)
+add_parmoon_test_any(iterative_solver_test)
+add_parmoon_test_any(matrix_test)
+add_parmoon_test_any(parameter_database_test)
+
+###############################################################################
+# tests for both 2D and 3D
+add_parmoon_test_2d_3d(Hdiv_element_test)
+add_parmoon_test_2d_3d(adaptive_hanging_test)
+add_parmoon_test_2d_3d(analytical_function_test)
+add_parmoon_test_2d_3d(boundary_condition_test)
+add_parmoon_test_2d_3d(boundary_data_test)
+add_parmoon_test_2d_3d(cd_dg_test)
+add_parmoon_test_2d_3d(collection_test)
+add_parmoon_test_2d_3d(darcy_test)
+add_parmoon_test_2d_3d(derived_system_class_test)
+add_parmoon_test_2d_3d(fe_function_test)
+add_parmoon_test_2d_3d(function_evaluation_test)
+add_parmoon_test_2d_3d(linesEval_test)
+add_parmoon_test_2d_3d(multigrid_test)
+add_parmoon_test_2d_3d(quadrature_test)
+add_parmoon_test_2d_3d(read_write_fe_function_test)
+add_parmoon_test_2d_3d(scott_vogelius_test)
+add_parmoon_test_2d_3d(stokes_equal_order_test)
+add_parmoon_test_2d_3d(structure_test)
+
+###############################################################################
+# 2D only
+add_parmoon_test_2d(block_fe_matrix_test)
+add_parmoon_test_2d(cd2d_adaptive_test)
+add_parmoon_test_2d(cd2d_afc_adaptive_test)
+add_parmoon_test_2d(cd2d_afc_test)
+add_parmoon_test_2d(cd2d_slope_limiter_test)
+add_parmoon_test_2d(cd2d_test)
+add_parmoon_test_2d(lsc_test)
+add_parmoon_test_2d(nse2d_dg_test)
+add_parmoon_test_2d(nse2d_supg_test)
+add_parmoon_test_2d(nse2d_test)
+add_parmoon_test_2d(simplified_systems_test)
+add_parmoon_test_2d(slope_limiter_test)
+add_parmoon_test_2d(snaps_pod_rom_test)
+add_parmoon_test_2d(tcd2d_femfct_test)
+add_parmoon_test_2d(tcd2d_test)
+add_parmoon_test_2d(tnse2d_rbvms_test)
+add_parmoon_test_2d(tnse2d_test)
+# brinkman2d_test.c++ includes "Brinkman2D.h", which no longer exists in this
+# repository; it is therefore not built.
+# add_parmoon_test_2d(brinkman2d_test)
+
+###############################################################################
+# 3D only
+add_parmoon_test_3d(cd3d_afc_test)
+add_parmoon_test_3d(cd3d_solvers_test)
+add_parmoon_test_3d(mesh3d_test)
+add_parmoon_test_3d(nse3d_solvers_test)
+add_parmoon_test_3d(sandwich_test)
+add_parmoon_test_3d(tcd3d_femfct_test)
+add_parmoon_test_3d(tcd3d_solvers_test)
+add_parmoon_test_3d(tnse3d_test)
+
+###############################################################################
+# tests requiring MPI (and MUMPS)
+if(PARMOON_USING_MPI)
+  add_parmoon_test_3d(domain_partitioning_read_write_test)
+  if(PARMOON_WITH_MUMPS)
+    add_parmoon_test_3d(mumps_test_1)
+    add_parmoon_test_3d(mumps_test_2)
+    add_parmoon_test_3d(mumps_wrapper_test)
+  endif()
 endif()
 
-# determine the parallel type (see https://stackoverflow.com/a/39671055)
-list(APPEND PARMOON_PARALLEL_TYPE_LIST "MPI" "OMPONLY" "HYBRID" "SEQUENTIAL")
-set(PARMOON_PARALLEL_TYPE "SEQUENTIAL" 
-    CACHE STRING "The used parallelism. Choose between ${PARMOON_PARALLEL_TYPE_LIST}.")
-# set the allowed strings as property. This way (graphical) editors for the 
-# cache (CMakeCache.txt) can select only the allowed values
-set_property(CACHE PARMOON_PARALLEL_TYPE PROPERTY STRINGS ${PARMOON_PARALLEL_TYPE_LIST})
-if(NOT PARMOON_PARALLEL_TYPE IN_LIST PARMOON_PARALLEL_TYPE_LIST)
-  message(FATAL_ERROR "Unknown PARMOON_PARALLEL_TYPE ${PARMOON_PARALLEL_TYPE}. "
-                      "Choose between ${PARMOON_PARALLEL_TYPE_LIST}")
-endif()
-message(STATUS "Chosen parallel type is " ${PARMOON_PARALLEL_TYPE}.)
-
-# Set two auxiliary variables, which make the file better readable imho
-if("${PARMOON_PARALLEL_TYPE}" STREQUAL "MPI" OR "${PARMOON_PARALLEL_TYPE}" STREQUAL "HYBRID")
-  set(PARMOON_USING_MPI TRUE)
-endif()
-if("${PARMOON_PARALLEL_TYPE}" STREQUAL "OMPONLY" OR "${PARMOON_PARALLEL_TYPE}" STREQUAL "HYBRID")
-  set(PARMOON_USING_OMP TRUE)
-endif()
-
-# include all external libraries, this creates a list of libraries and a list of
-# include directories: PARMOON_EXTERNAL_LIBRARIES, PARMOON_EXTERNAL_INCLUDES
-include(cmake/external_libraries.cmake)
-
-###############################################################################
-# parmoon defines 
-set(PARMOON_CONFIG_DIR ${CMAKE_CURRENT_BINARY_DIR}/config)
-configure_file(${CMAKE_CURRENT_SOURCE_DIR}/cmake/all_defines_external_libraries.h.in
-               ${PARMOON_CONFIG_DIR}/all_defines_external_libraries.h)
-###############################################################################
-# make sure the correct information on the repository (current commit, branch,
-# ...) and build configuration (build type, parallel, path to directory) are
-# available during compile and run time. This information will be updated during
-# before building the ParMooN libraries.
-# For this we define a target 'repository_info' on which the ParMooN libraries
-# depend on. Unfortunately, it is not possible to call a cmake function in
-# add_custom_target(...), so that we have to call another cmake script instead.
-# This script in turn is created via configure_file(...).
-find_package(Git)
-configure_file(${CMAKE_SOURCE_DIR}/cmake/get_repository_information.cmake.in
-               ${PARMOON_CONFIG_DIR}/get_repository_information.cmake @ONLY)
-add_custom_target(repository_info
-                  COMMAND ${CMAKE_COMMAND}
-                  -D PARMOON_PARALLEL_TYPE=${PARMOON_PARALLEL_TYPE}
-                  -D PARMOON_BUILD_TYPE=${CMAKE_BUILD_TYPE}
-                  -D PARMOON_SOURCE_DIR=${CMAKE_SOURCE_DIR}
-                  -P ${PARMOON_CONFIG_DIR}/get_repository_information.cmake
-                  BYPRODUCTS ${PARMOON_CONFIG_DIR}/ParMooN_repository_info.cpp)
-#list(APPEND PARMOON_INCLUDE_DIRS $<BUILD_INTERFACE:${PARMOON_CONFIG_DIR}>)
-list(APPEND PARMOON_SOURCES_2D ${PARMOON_CONFIG_DIR}/ParMooN_repository_info.cpp)
-list(APPEND PARMOON_SOURCES_3D ${PARMOON_CONFIG_DIR}/ParMooN_repository_info.cpp)
-
-###############################################################################
-# turn on all warnings
-add_compile_options(
-  # clang/GCC warnings
-  $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:GNU>>:-Wall>
-  $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:GNU>>:-Wextra>
-  $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:GNU>>:-pedantic>
-  $<$<OR:$<CXX_COMPILER_ID:Clang>,$<CXX_COMPILER_ID:GNU>>:-Wno-attributes>
-  # MSVC warnings
-  $<$<CXX_COMPILER_ID:MSVC>:"/W4">)
-
-if(${CMAKE_SYSTEM_NAME} MATCHES "Darwin")
-  add_compile_options(-D__MAC64__) # how can we get rid of this?
-endif()
-
-
-###############################################################################
-# If we want global compile flags to reach the subdirectories, we have to 
-# run the following includes AFTER setting global flags.
-include(cmake/sources_assembleroutines.cmake)
-include(cmake/sources_assembleroutinessaddle.cmake)
-include(cmake/sources_examples.cmake)
-include(cmake/sources_fe.cmake)
-include(cmake/sources_general.cmake)
-include(cmake/sources_geometry.cmake)
-include(cmake/sources_matrix.cmake)
-include(cmake/sources_multigrid.cmake)
-include(cmake/sources_parallel.cmake)
-include(cmake/sources_quadformulas.cmake)
-include(cmake/sources_refinement.cmake)
-include(cmake/sources_rom.cmake)
-include(cmake/sources_solver.cmake)
-include(cmake/sources_system.cmake)
-include(cmake/sources_timediscroutines.cmake)
-# include(cmake/sources_pbe.cmake)
-include(cmake/sources_prePostprocessing.cmake)
-
-set(CMAKE_CXX_STANDARD 11)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
-set(CMAKE_CXX_EXTENSIONS OFF)
-
-###############################################################################
-# Define two static libraries. Each has its own precompiler flag (2D/3D).
-if(NOT PARMOON_USING_MPI)
-  add_library(parmoon_2d_${PARMOON_PARALLEL_TYPE} STATIC ${PARMOON_SOURCES_2D})
-  add_library(parmoon::parmoon_2d ALIAS parmoon_2d_${PARMOON_PARALLEL_TYPE})
-  target_compile_definitions(parmoon_2d_${PARMOON_PARALLEL_TYPE} PUBLIC __2D__)
-  target_compile_definitions(parmoon_2d_${PARMOON_PARALLEL_TYPE} PUBLIC 
-                             $<$<BOOL:${PARMOON_USING_MPI}>:_MPI>
-                             $<$<BOOL:${PARMOON_USING_OMP}>:_OMP>)
-  target_include_directories(parmoon_2d_${PARMOON_PARALLEL_TYPE}
-      PUBLIC 
-          "$<INSTALL_INTERFACE:${PARMOON_INCLUDE_DIRS}>"
-          $<BUILD_INTERFACE:${PARMOON_INCLUDE_DIRS}>
-          $<BUILD_INTERFACE:${PARMOON_CONFIG_DIR}>
-          )
-  target_link_libraries(parmoon_2d_${PARMOON_PARALLEL_TYPE} parmoon::external_libraries)
-  #target_compile_features(parmoon_2d_${PARMOON_PARALLEL_TYPE} PUBLIC cxx_std_11) # cmake 3.8
-  add_dependencies(parmoon_2d_${PARMOON_PARALLEL_TYPE} repository_info)
-endif(NOT PARMOON_USING_MPI)
-
-add_library(parmoon_3d_${PARMOON_PARALLEL_TYPE} STATIC ${PARMOON_SOURCES_3D})
-add_library(parmoon::parmoon_3d ALIAS parmoon_3d_${PARMOON_PARALLEL_TYPE})
-target_compile_definitions(parmoon_3d_${PARMOON_PARALLEL_TYPE} PUBLIC __3D__)
-target_compile_definitions(parmoon_3d_${PARMOON_PARALLEL_TYPE} PUBLIC 
-                           $<$<BOOL:${PARMOON_USING_MPI}>:_MPI>
-                           $<$<BOOL:${PARMOON_USING_OMP}>:_OMP>)
-target_include_directories(parmoon_3d_${PARMOON_PARALLEL_TYPE} 
-    PUBLIC
-        "$<INSTALL_INTERFACE:${PARMOON_INCLUDE_DIRS}>"
-        $<BUILD_INTERFACE:${PARMOON_INCLUDE_DIRS}>
-        $<BUILD_INTERFACE:${PARMOON_CONFIG_DIR}>
-        )
-target_link_libraries(parmoon_3d_${PARMOON_PARALLEL_TYPE} parmoon::external_libraries)
-#target_compile_features(parmoon_3d_${PARMOON_PARALLEL_TYPE} PUBLIC cxx_std_11) # cmake 3.8
-add_dependencies(parmoon_3d_${PARMOON_PARALLEL_TYPE} repository_info)
-
-
-##############################################################
-# Start adding targets.
-
-include(cmake/main_programs.cmake)
-include(cmake/documentation_target.cmake)
-include(cmake/install.cmake)
-
-###############################################################################
-enable_testing()
-
-###############################################################################
-# tests 
-add_subdirectory(test EXCLUDE_FROM_ALL)
-####################################################
-#                THE CHECK TARGET                  #
-#   making this target results in building and     #
-#   running all tests corresponding to the current #
-#   parallel type. Use it excessively!             #
-####################################################
-add_custom_target(build_all_tests DEPENDS ${parmoon_tests})
-add_custom_target(build_all_main DEPENDS ${parmoon_main_programs})
-add_custom_target(check COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure --exclude-regex all
-                  DEPENDS build_all_tests build_all_main generate_standard_input_files)
-add_custom_target(check_all COMMAND ${CMAKE_CTEST_COMMAND} --output-on-failure 
-                  DEPENDS build_all_tests build_all_main generate_standard_input_files)
-
-include(cmake/additional_helper_targets.cmake)
-
-############
-# End adding executable targets.
-############
-
-message("=====================================================================================================")        
-message("Configuration for ParMooN complete, Version " ${ParMooN_VERSION})
-message("=====================================================================================================") 
+# make the list of test targets available to the parent (for 'make check')
+set(parmoon_tests ${parmoon_tests} PARENT_SCOPE)

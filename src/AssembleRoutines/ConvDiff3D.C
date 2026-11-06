@@ -6,6 +6,7 @@
 
 #include <LinAlg.h>
 #include <MooNMD_Io.h>
+#include <array>
 #include <cmath>
 #include <stdlib.h>
 #include <string.h>
