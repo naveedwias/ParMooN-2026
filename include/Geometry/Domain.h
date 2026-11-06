@@ -23,6 +23,7 @@ class TDomain;
 #include <Iterator.h>
 #include <Mesh.h>
 #include <ParameterDatabase.h>
+#include <vector>
 
 class TJoint;
 
@@ -323,6 +324,22 @@ class TDomain
     /** @brief refine the finest grid if necessary in order to get a grid with
      *  conforming closures */
     int MakeConfClosure();
+
+    /** @brief adaptive refinement and coarsening of the finest grid.
+     *
+     * Cells (indexed as in the finest collection) with refine[k] true are
+     * refined regularly. A parent cell is derefined (its children are
+     * removed) if it was refined regularly, all its children are cells of
+     * the finest grid, all of them are marked in 'coarsen', none is marked in
+     * 'refine', and the children's level is larger than 'min_level'. Then
+     * the conforming closure is computed (if 'conforming_closure' is set,
+     * otherwise a 1-regular grid) and the new finest collection is created.
+     * Vertices of removed cells are deleted, so pointers to vertices of the
+     * old finest grid must not be used afterwards.
+     * @return the number of derefined parent cells
+     */
+    int RefineAndCoarsen(const std::vector<bool>& refine,
+                         const std::vector<bool>& coarsen, int min_level);
 
     
     /** @brief refine/derefine algorithm for a 1-regular grid, geolevel of all

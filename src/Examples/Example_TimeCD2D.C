@@ -67,6 +67,19 @@ namespace rectangle_xyt_neumann
 
 #include "TCD_2D/exp_sin3_0_pi.h"  // 13
 
+namespace fgjn14_example3  // 14
+{
+#include "TCD_2D/FGJN14_Example3.h"
+}
+namespace fgjn14_example4  // 15
+{
+#include "TCD_2D/FGJN14_Example4.h"
+}
+namespace fgjn14_example5  // 16
+{
+#include "TCD_2D/FGJN14_Example5.h"
+}
+
 //=======================================================
 
 Example_TimeCD2D::Example_TimeCD2D(
@@ -390,6 +403,45 @@ Example_TimeCD2D::Example_TimeCD2D(
       DiffCoeff = getDiffCoeff();
       ExampleFile();
      break;
+    }
+
+    case 14: // de Frutos, Garcia-Archilla, John, Novo 2014, Example 3
+    {
+      using namespace fgjn14_example3;
+      exact_solution.push_back( Exact );
+      initialCondition.push_back( InitialCondition );
+      boundary_conditions.push_back( BoundCondition );
+      boundary_data.push_back( BoundValue );
+      problem_coefficients = BilinearCoeffs;
+      diffusion_coefficient = getDiffCoeff();
+      ExampleFile();
+      break;
+    }
+
+    case 15: // de Frutos, Garcia-Archilla, John, Novo 2014, Example 4
+    {
+      using namespace fgjn14_example4;
+      exact_solution.push_back( Exact );
+      initialCondition.push_back( InitialCondition );
+      boundary_conditions.push_back( BoundCondition );
+      boundary_data.push_back( BoundValue );
+      problem_coefficients = BilinearCoeffs;
+      diffusion_coefficient = getDiffCoeff();
+      ExampleFile();
+      break;
+    }
+
+    case 16: // de Frutos, Garcia-Archilla, John, Novo 2014, Example 5
+    {
+      using namespace fgjn14_example5;
+      exact_solution.push_back( Exact );
+      initialCondition.push_back( InitialCondition );
+      boundary_conditions.push_back( BoundCondition );
+      boundary_data.push_back( BoundValue );
+      problem_coefficients = BilinearCoeffs;
+      diffusion_coefficient = getDiffCoeff();
+      ExampleFile();
+      break;
     }
 
     default:

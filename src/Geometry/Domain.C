@@ -1205,6 +1205,86 @@ void TDomain::RefineByRefinementStrategy(RefinementStrategy<d>& strategy)
   }
   gridCollections.push_front(this->GetCollection(It_Finest, 0));
 }
+int TDomain::RefineAndCoarsen(const std::vector<bool>& refine,
+                              const std::vector<bool>& coarsen, int min_level)
+{
+  TCollection* collection = this->GetCollection(It_Finest, 0);
+  int n_cells = collection->GetN_Cells();
+  if((int) refine.size() != n_cells || (int) coarsen.size() != n_cells)
+    ErrThrow("TDomain::RefineAndCoarsen: marker vectors have wrong length");
+  // index of each cell in the finest collection, used to identify siblings
+  for(int k = 0; k < n_cells; k++)
+    collection->GetCell(k)->SetClipBoard(k);
+
+  // find parents which can be derefined
+  std::vector<TBaseCell*> to_derefine;
+  for(int k = 0; k < n_cells; k++)
+  {
+    TBaseCell* cell = collection->GetCell(k);
+    if(!coarsen[k] || refine[k])
+      continue;
+    TBaseCell* parent = cell->GetParent();
+    if(parent == nullptr || cell->GetGeoLevel() <= min_level)
+      continue;
+    // only regularly refined parents; closure refinements are handled by
+    // MakeConfClosure
+    Refinements type = parent->GetRefDesc()->GetType();
+    if(type != TriReg && type != QuadReg)
+      continue;
+    // the first child does the check for all siblings
+    if(parent->GetChild(0) != cell)
+      continue;
+    bool all_coarsen = true;
+    for(int c = 0; c < parent->GetN_Children(); c++)
+    {
+      TBaseCell* child = parent->GetChild(c);
+      int idx = child->GetClipBoard();
+      if(child->ExistChildren() || idx < 0 || idx >= n_cells
+         || collection->GetCell(idx) != child || !coarsen[idx] || refine[idx])
+      {
+        all_coarsen = false;
+        break;
+      }
+    }
+    if(all_coarsen)
+      to_derefine.push_back(parent);
+  }
+
+  // set refinement marks on the remaining cells
+  for(int k = 0; k < n_cells; k++)
+  {
+    if(refine[k])
+      collection->GetCell(k)->SetRegRefine();
+    else
+      collection->GetCell(k)->SetNoRefinement();
+  }
+  // derefine
+  for(TBaseCell* parent : to_derefine)
+  {
+    parent->Derefine();
+    parent->SetNoRefinement();
+  }
+  if(db["conforming_closure"] &&
+     (collection->GetCell(0)->GetShapeDesc()->GetType() == Hexahedron ||
+      collection->GetCell(0)->GetShapeDesc()->GetType() == Brick))
+  {
+    ErrThrow("Conforming closure with Hexahedrons is not possible with this"
+             " code.");
+  }
+  delete collection;
+  if(db["conforming_closure"])
+  {
+    MakeConfClosure();
+  }
+  else
+  {
+    Refine();
+    Gen1RegGrid();
+  }
+  gridCollections.push_front(this->GetCollection(It_Finest, 0));
+  return (int) to_derefine.size();
+}
+
 #ifdef __3D__
 template void TDomain::RefineByRefinementStrategy(
   RefinementStrategy<3>& strategy);
