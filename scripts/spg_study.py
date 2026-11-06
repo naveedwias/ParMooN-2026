@@ -143,8 +143,9 @@ def run_one(args, study, pair, nu):
     os.makedirs(workdir, exist_ok=True)
     v, p = pair.split("/")
     levels = args.levels if args.levels is not None else cfg["levels"]
+    initial = args.initial if args.initial is not None else cfg["initial"]
     dat = DAT_TEMPLATE.format(
-        name=name, initial=cfg["initial"], levels=levels,
+        name=name, initial=initial, levels=levels,
         uniform="true" if cfg["uniform"] else "false",
         problem_type=cfg["problem_type"], example=cfg["example"],
         vtk="true" if args.vtk else "false", vtk_dir="vtk",
@@ -155,7 +156,8 @@ def run_one(args, study, pair, nu):
     with open(dat_file, "w") as f:
         f.write(dat)
     exe = os.path.abspath(args.exe)
-    print(f"  {name}: running ({pair_label(pair)}, nu = {nu:g}, {levels} levels) ...",
+    print(f"  {name}: running ({pair_label(pair)}, nu = {nu:g}, {levels} levels, "
+          f"initial refinement {initial}) ...",
           end="", flush=True)
     t0 = time.time()
     with open(os.path.join(workdir, "stdout.log"), "w") as log:
@@ -315,6 +317,9 @@ def main():
                     help="viscosities (default depends on the study)")
     ap.add_argument("--levels", type=int, default=None,
                     help="number of refinement levels (default depends on the study)")
+    ap.add_argument("--initial", type=int, default=None,
+                    help="number of uniform refinements of the coarsest grid before "
+                         "the study starts (default depends on the study)")
     ap.add_argument("--max-dofs", type=float, default=None,
                     help="drop levels with more DoFs from the plots")
     ap.add_argument("--delta0", type=float, default=0.5)
