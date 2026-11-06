@@ -783,6 +783,27 @@ void CDErrorEstimator<d>::estimate(const Example_CD & example,
       auto coeff_fct = example.get_coeffs();
       coeff_fct(N_Points, X, Y, nullptr, &coefficientsPerQuadPoint[0]);
     }
+    // time-dependent problems (de Frutos, Garcia-Archilla, John, Novo 2014):
+    // the solution of the evolutionary problem is the SUPG solution of the
+    // steady-state problem with right-hand side f - d_t u_h, so the time
+    // derivative is subtracted from f (coefficient index 4) in the residual
+    if(time_derivative != nullptr)
+    {
+      if(time_derivative->GetFESpace() != fe_function.GetFESpace())
+        ErrThrow("CDErrorEstimator: the time derivative must live in the same "
+                 "finite element space as the solution");
+      const int *DOF = fe_space->GetGlobalDOF(cellIdx);
+      const double *dt_values = time_derivative->GetValues();
+      double **OrigFEValues = FEDatabase::GetOrigElementValues(
+        *basis_functions, derivatives[0]);
+      for(long j = 0; j < N_Points; j++)
+      {
+        double value = 0;
+        for(int l = 0; l < n_base_functs; l++)
+          value += dt_values[DOF[l]] * OrigFEValues[j][l];
+        coefficientsPerQuadPoint[j][4] -= value;
+      }
+    }
 
     // 1D quadrature formula
     const TQuadFormula *quadFormula = QuadratureFormulaDatabase::qf_from_degree(

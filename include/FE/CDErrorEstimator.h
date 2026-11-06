@@ -66,6 +66,8 @@ class CDErrorEstimator : public ErrorEstimator<d>
     struct JointRefData;
   
   protected:
+    // time derivative of the solution for time-dependent problems (not owned)
+    const FEFunction* time_derivative = nullptr;
     // needed derivatives
 #ifdef __3D__
     const MultiIndex_vector derivatives{MultiIndex3D::D000, MultiIndex3D::D100,
@@ -104,6 +106,16 @@ class CDErrorEstimator : public ErrorEstimator<d>
     CDErrorEstimator(const ParameterDatabase& param_db);
 
     void estimate(const Example_CD &ex, const FEFunction &fe_function);
+
+    /** @brief For time-dependent problems: set (an approximation of) the time
+     * derivative of the solution, which is subtracted from the right-hand side
+     * in the residual (f - d_t u_h), see de Frutos, Garcia-Archilla, John,
+     * Novo, Comput. Methods Appl. Mech. Engrg. 273 (2014) 219-237, Eq. (9).
+     * The function must live in the same fe space as the solution. Pass
+     * nullptr (default) for steady-state problems. The pointer is only stored.
+     */
+    void set_time_derivative(const FEFunction* dt_u)
+    { time_derivative = dt_u; }
     
     virtual void info() override;
 };
