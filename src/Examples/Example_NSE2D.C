@@ -125,6 +125,16 @@ namespace tnse_aaj_layers
 #include "NSE_2D/TNSE_AAJ_layers.h"
 }
 
+namespace bdf2imex_smooth
+{
+#include "NSE_2D/BDF2IMEX_smooth.h"
+}
+
+CoeffFct2D bdf2imex_stokes_projection_coeffs()
+{
+  return bdf2imex_smooth::StokesProjectionCoeffs;
+}
+
 //============================================================================
 
 Example_NSE2D::Example_NSE2D(const ParameterDatabase& user_input_parameter_db) 
@@ -752,6 +762,20 @@ case 7:
     tnse_aaj_layers::ExampleFile();
     break;
 
+  case 25: // BDF2-IMEX / CIP / Scott-Vogelius, smooth solution
+    exact_solution.push_back( bdf2imex_smooth::ExactU1 );
+    exact_solution.push_back( bdf2imex_smooth::ExactU2 );
+    exact_solution.push_back( bdf2imex_smooth::ExactP );
+    boundary_conditions.push_back( bdf2imex_smooth::BoundCondition );
+    boundary_conditions.push_back( bdf2imex_smooth::BoundCondition );
+    boundary_conditions.push_back( BoundConditionNoBoundCondition );
+    boundary_data.push_back( bdf2imex_smooth::U1BoundValue );
+    boundary_data.push_back( bdf2imex_smooth::U2BoundValue );
+    boundary_data.push_back( BoundaryValueHomogenous );
+    problem_coefficients = bdf2imex_smooth::LinCoeffs;
+    bdf2imex_smooth::ExampleFile();
+    break;
+
 
   default:
     ErrThrow("Unknown Navier-Stokes example",  example_code, " !");
@@ -803,6 +827,7 @@ double Example_NSE2D::get_nu() const
   case 22:
   case 23:
   case 24:
+  case 25:
     {
       nu = this->example_database["reynolds_number"];
       nu = 1./nu;

@@ -22,6 +22,10 @@
 
 template <int d> class NavierStokes; //forward declaration
 
+/// coefficient function of the Stokes projection (f_s = -nu Laplace(u) +
+/// grad p) for the BDF2-IMEX example 25
+CoeffFct2D bdf2imex_stokes_projection_coeffs();
+
 class Example_NSE2D : public Example2D
 {
   public:
