@@ -1,5 +1,5 @@
 [ ParMooN database: adaptive SUPG for evolutionary CD (de Frutos, Garcia-Archilla, John, Novo 2014) ]
-outfile: ex2.out
+outfile: ex2tr.out
 boundary_file: Default_UnitSquare
 geo_file: TwoTriangles
 refinement_n_initial_steps: 5
@@ -23,6 +23,11 @@ time_step_length: 1.0e-3
 solver_type: direct
 direct_solver_type: umfpack
 tcd_adaptive: false
+tcd_time_adaptive: true
+tcd_tolt: 1.0e-5
+tcd_dt0: 1.0e-10
+tcd_dt_max: 0.05
+tcd_output_time: 0.5
 tcd_estimator_mu0: 1.0
 tcd_refine_every: 50
-tcd_write_table: ex2_table.txt
+tcd_write_table: ex2tr_table.txt
