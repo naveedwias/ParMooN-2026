@@ -1,8 +1,8 @@
 [ ParMooN database: adaptive SUPG (FGJN14), Example 3 ]
 outfile: ex3b.out
 boundary_file: Default_UnitSquare
-geo_file: TwoTriangles
-refinement_n_initial_steps: 5
+geo_file: ../ParMooN-2026/data/mesh/UnitSquare25x25_tria.GEO
+refinement_n_initial_steps: 0
 conforming_closure: true
 problem_type: 2
 example: 14
@@ -27,9 +27,14 @@ time_step_length: 1.0e-2
 solver_type: direct
 direct_solver_type: umfpack
 tcd_adaptive: true
+tcd_time_adaptive: true
+tcd_tolt: 1.0e-5
+tcd_dt0: 1.0e-10
+tcd_dt_max: 0.1
+tcd_output_time: 0.2
 tcd_coarsening: true
-tcd_tol1: 3.0e-3
-tcd_tol2: 1.5e-4
+tcd_tol1: 1.0e-3
+tcd_tol2: 5.0e-5
 tcd_estimator_mu0: 0.0
 tcd_refine_every: 1
 tcd_max_cell_level: 14
