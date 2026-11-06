@@ -652,6 +652,14 @@ void NavierStokes<d>::assemble_nonlinear_term()
   bool mdml =  this->solver.is_using_multigrid() 
             && this->solver.get_multigrid()->is_using_mdml();
   bool is_stokes = this->db["problem_type"].is(3); // otherwise Navier-Stokes
+  if(db["space_discretization_type"].is("supg_pspg_graddiv"))
+  {
+    // SUPG/PSPG/grad-div (Afzal, Ahmed, John 2026): the current velocity
+    // iterate enters the SUPG/PSPG test functions, the PSPG rows (B) and the
+    // stabilized right-hand side, so all blocks are reassembled (Picard).
+    this->assemble_linear_terms();
+    return;
+  }
   if ((mdml && !is_stokes)|| db["space_discretization_type"].is("upwind"))
   {
     // in case of upwinding we only assemble the linear terms. The nonlinear

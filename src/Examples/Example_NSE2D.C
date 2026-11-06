@@ -105,6 +105,16 @@ namespace polynomial_nse
 #include "NSE_2D/Polynomial.h"
 }
 
+namespace oseen_aaj_smooth
+{
+#include "NSE_2D/Oseen_AAJ_smooth.h"
+}
+
+namespace oseen_aaj_layers
+{
+#include "NSE_2D/Oseen_AAJ_layers.h"
+}
+
 //============================================================================
 
 Example_NSE2D::Example_NSE2D(const ParameterDatabase& user_input_parameter_db) 
@@ -676,6 +686,34 @@ case 7:
     polynomial_nse::ExampleFile();
     break;
 
+  case 21: // Afzal-Ahmed-John (2026), Example 4.1 / 5.1: smooth Oseen/NSE solution
+    exact_solution.push_back( oseen_aaj_smooth::ExactU1 );
+    exact_solution.push_back( oseen_aaj_smooth::ExactU2 );
+    exact_solution.push_back( oseen_aaj_smooth::ExactP );
+    boundary_conditions.push_back( oseen_aaj_smooth::BoundCondition );
+    boundary_conditions.push_back( oseen_aaj_smooth::BoundCondition );
+    boundary_conditions.push_back( BoundConditionNoBoundCondition );
+    boundary_data.push_back( oseen_aaj_smooth::U1BoundValue );
+    boundary_data.push_back( oseen_aaj_smooth::U2BoundValue );
+    boundary_data.push_back( BoundaryValueHomogenous );
+    problem_coefficients = oseen_aaj_smooth::LinCoeffs;
+    oseen_aaj_smooth::ExampleFile();
+    break;
+
+  case 22: // Afzal-Ahmed-John (2026), Example 4.2 / 5.2: solution with boundary layers
+    exact_solution.push_back( oseen_aaj_layers::ExactU1 );
+    exact_solution.push_back( oseen_aaj_layers::ExactU2 );
+    exact_solution.push_back( oseen_aaj_layers::ExactP );
+    boundary_conditions.push_back( oseen_aaj_layers::BoundCondition );
+    boundary_conditions.push_back( oseen_aaj_layers::BoundCondition );
+    boundary_conditions.push_back( BoundConditionNoBoundCondition );
+    boundary_data.push_back( oseen_aaj_layers::U1BoundValue );
+    boundary_data.push_back( oseen_aaj_layers::U2BoundValue );
+    boundary_data.push_back( BoundaryValueHomogenous );
+    problem_coefficients = oseen_aaj_layers::LinCoeffs;
+    oseen_aaj_layers::ExampleFile();
+    break;
+
   default:
     ErrThrow("Unknown Navier-Stokes example",  example_code, " !");
   }
@@ -722,6 +760,8 @@ double Example_NSE2D::get_nu() const
   case 5:
   case 17:
   case 18:
+  case 21:
+  case 22:
     {
       nu = this->example_database["reynolds_number"];
       nu = 1./nu;

@@ -1,0 +1,37 @@
+[ ParMooN database: SUPG/PSPG/grad-div Oseen (Afzal, Ahmed, John 2026), run with parMooN_oseen2d_spg_adaptive ]
+outfile: oseen_spg.out
+boundary_file: Default_UnitSquare
+geo_file: TwoTriangles
+refinement_n_initial_steps: 1
+refinement_max_n_adaptive_steps: 5
+conforming_closure: true
+spg_uniform_refinement: true
+problem_type: 3
+example: 21
+verbosity: 1
+output_write_vtk: false
+output_compute_errors: true
+output_basename: oseen_spg
+space_discretization_type: supg_pspg_graddiv
+spg_delta0: 0.5
+spg_mu0: 0.5
+spg_estimator_sigma0: 1.0
+nonlinloop_maxit: 50
+nonlinloop_epsilon: 1e-10
+solver_type: direct
+direct_solver_type: umfpack
+VELOCITY_SPACE: 2
+PRESSURE_SPACE: 1
+reynolds_number: 1.0e4
+NSTYPE: 14
+LAPLACETYPE: 0
+NSE_NONLINEAR_FORM: 0
+# refinement strategy (only used for adaptive refinement)
+refinement_strategy: 0
+refinement_tolerance: 0.5
+min_fraction_to_change: 0.1
+decrease_reftol_factor: 0.8
+# Example 4.1 (example: 21): sigma = 1 -> spg_estimator_sigma0: 1.0, uniform refinement
+# Example 4.2 (example: 22): sigma = 0 -> spg_estimator_sigma0: 0.0, spg_uniform_refinement: false
+# Navier-Stokes (Sections 5.1/5.2): problem_type: 5, reynolds_number: 100 or 400
+# RE_NR is set from reynolds_number by the main program.

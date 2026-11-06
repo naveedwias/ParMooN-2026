@@ -233,6 +233,10 @@ LocalAssembling<d>::LocalAssembling(ParameterDatabase param_db,
       {
         this->set_parameters_for_nse_supg(type);
       }
+      else if (disc_type.is("supg_pspg_graddiv"))
+      {
+        this->set_parameters_for_nse_spg(type);
+      }
       else if(disc_type.is("dg"))
       {
         this->set_parameters_for_nse_dg();
@@ -493,7 +497,7 @@ ParameterDatabase LocalAssembling<d>::default_local_assembling_database()
   db.add("space_discretization_type", "galerkin",
          "The type of discretization. Note that not all types are possible for "
          "all problem classes.",
-         {"galerkin", "supg", "upwind", "smagorinsky", "cip", "dg", "symm_gls",
+         {"galerkin", "supg", "supg_pspg_graddiv", "upwind", "smagorinsky", "cip", "dg", "symm_gls",
           "nonsymm_gls", "pspg", "brezzi_pitkaeranta", "vms_projection",
           "vms_projection_expl", "local_projection", "local_projection_2_level",
           "residual_based_vms", "rbvms_time",
@@ -506,6 +510,15 @@ ParameterDatabase LocalAssembling<d>::default_local_assembling_database()
          "diameter), nu is the inverse of the reynolds number, and delta0 is "
          " this parameter. This parameter is also used for Brezzi-Pitkaeranta",
          0., 10.);
+  db.add("spg_delta0", 0.5,
+         "SUPG/PSPG parameter delta_0 of the 'supg_pspg_graddiv' method for "
+         "Oseen/Navier-Stokes (Afzal, Ahmed, John 2026): delta_K = delta_0 h_K^2 "
+         "for inf-sup stable pairs; delta_0 h_K (if nu < h_K) or delta_0 h_K^2 "
+         "for equal order pairs.", 0., 100.);
+  db.add("spg_mu0", 0.5,
+         "grad-div parameter mu_0 of the 'supg_pspg_graddiv' method: mu_K = mu_0 "
+         "for inf-sup stable pairs and mu_K = mu_0 h_K for equal order pairs.",
+         0., 100.);
   db.add("supg_delta0", 0.25,
          "the stabilization parameter for SUPG (Streamline-Upwind "
          "Petrov Galerkin) is delta0 * h^2, where h is a cell measure (e.g. "
@@ -1662,6 +1675,84 @@ void LocalAssembling<d>::set_parameters_for_nse_supg(LocalAssembling_type type)
       ErrThrow("unknown LocalAssembling3D_type ", this->type);
       break;
   }
+}
+
+//========================================================================
+// SUPG/PSPG/grad-div method for Oseen and stationary Navier-Stokes,
+// Afzal, Ahmed, John, Comput. Math. Appl. 223 (2026) 467-486, Eqs. (7)-(8).
+// All blocks (A, B, B^T, C) and the right-hand side are assembled for both the
+// 'NavierStokesAll' and the 'NavierStokesNL' type, because for Navier-Stokes
+// the current velocity iterate enters the SUPG test function, the PSPG rows and
+// the stabilized right-hand side (Picard iteration).
+template <int d>
+void LocalAssembling<d>::set_parameters_for_nse_spg(LocalAssembling_type)
+{
+  Parameter nonlin_form(db["nse_nonlinear_form"]);
+  int nstype = TDatabase::ParamDB->NSTYPE;
+  if(nstype != 14)
+  {
+    ErrThrow("space_discretization_type 'supg_pspg_graddiv' needs NSTYPE 14 "
+             "(A, B, B^T and C blocks).");
+  }
+  if(!nonlin_form.is("convective"))
+  {
+    ErrThrow("supg_pspg_graddiv: only the convective form is supported");
+  }
+  if(d == 3)
+  {
+    ErrThrow("supg_pspg_graddiv is only implemented in 2D");
+  }
+  this->N_Rhs = d+1;
+  this->RhsSpace = { 0, 0, 1 };
+  this->Needs2ndDerivatives = new bool[d];
+  for(int i = 0; i < d; i++)
+    this->Needs2ndDerivatives[i] = true;
+  this->N_Terms = 8;
+  this->FESpaceNumber = { 0, 1, 0, 0, 1, 1, 0, 0 };
+#ifdef __2D__      // 0   1    2    3    4    5    6    7
+  this->Derivatives = { MultiIndex2D::D00, MultiIndex2D::D00, MultiIndex2D::D10,
+                        MultiIndex2D::D01, MultiIndex2D::D10, MultiIndex2D::D01,
+                        MultiIndex2D::D20, MultiIndex2D::D02};
+#endif
+  this->Manipulate = nullptr;
+  this->N_Parameters = d;
+  this->N_ParamFct = 1;
+  this->ParameterFct =  { NSParamsVelocity<d> };
+  this->N_FEValues = d;
+  this->FEValue_FctIndex = std::vector<int>(d);
+  std::iota(this->FEValue_FctIndex.begin(), this->FEValue_FctIndex.end(), 0);
+  this->FEValue_MultiIndex = MultiIndex_vector(d, indices_up_to_order<d>(0)[0]);
+  this->BeginParameter = { 0 };
+  this->N_Matrices = (d+1)*(d+1); // 9
+  this->RowSpace =    { 0, 0, 0, 0, 1, 1, 1, 0, 0 };
+  this->ColumnSpace = { 0, 0, 0, 0, 1, 0, 0, 1, 1 };
+
+  using namespace std::placeholders;
+  double delta0 = db["spg_delta0"];
+  double mu0 = db["spg_mu0"];
+  // equal order pairs (P_k/P_k, Q_k/Q_k) versus inf-sup stable pairs
+  bool equal_order = (TDatabase::ParamDB->VELOCITY_SPACE
+                      == TDatabase::ParamDB->PRESSURE_SPACE);
+  // Oseen (linear, b and sigma from the example) versus Navier-Stokes
+  bool oseen = (db["problem_type"].is(3) || TDatabase::ParamDB->FLOW_PROBLEM_TYPE==3
+                || TDatabase::ParamDB->INTERNAL_PROBLEM_LINEAR);
+  Output::print<3>("supg_pspg_graddiv: delta0 = ", delta0, ", mu0 = ", mu0,
+                   ", equal order pair: ", equal_order, ", Oseen: ", oseen);
+
+  this->local_assemblings_routines.push_back(
+    std::bind(NS_SPG_VelocityBlocks<d>, _1, _2, _3, _4, _5, _6, _7, _8,
+              delta0, mu0, equal_order, oseen));
+  this->local_assemblings_routines.push_back(
+    std::bind(NS_SPG_GradientBlocks<d>, _1, _2, _3, _4, _5, _6, _7, _8,
+              delta0, mu0, equal_order, oseen));
+  this->local_assemblings_routines.push_back(
+    std::bind(NSDivergenceBlocks<d>, _1, _2, _3, _4, _5, _6, _7, _8, 1));
+  this->local_assemblings_routines.push_back(
+    std::bind(NS_SPG_PressureBlocks<d>, _1, _2, _3, _4, _5, _6, _7, _8,
+              delta0, mu0, equal_order, oseen));
+  this->local_assemblings_routines.push_back(
+    std::bind(NS_SPG_RightHandSide<d>, _1, _2, _3, _4, _5, _6, _7, _8,
+              delta0, mu0, equal_order, oseen));
 }
 
 //========================================================================

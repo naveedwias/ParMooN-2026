@@ -1931,3 +1931,252 @@ template void NSRightHandSideSUPG<3>(
   const double **OrigValues, const int *N_BaseFuncts, double ***LocMatrices,
   double **LocRhs, double delta0);
 #endif // 3D
+
+///////////////////////////////////////////////////////////////////////////////
+// SUPG/PSPG/grad-div method (Afzal, Ahmed, John 2026), Eqs. (7)-(8)
+///////////////////////////////////////////////////////////////////////////////
+void compute_SPG_parameters(double hK, double nu, double delta0, double mu0,
+                            bool equal_order, double& deltaK, double& muK)
+{
+  if(equal_order)
+  {
+    deltaK = (nu < hK) ? delta0 * hK : delta0 * hK * hK;
+    muK = mu0 * hK;
+  }
+  else
+  {
+    deltaK = delta0 * hK * hK;
+    muK = mu0;
+  }
+}
+
+namespace
+{
+  // convection field and reaction coefficient at the current quadrature point
+  inline void spg_convection(const double *coeff, const double *param, bool oseen,
+                             double& b1, double& b2, double& sigma)
+  {
+    if(oseen)
+    {
+      b1 = coeff[4];
+      b2 = coeff[5];
+      sigma = coeff[6];
+    }
+    else
+    {
+      b1 = param[0];
+      b2 = param[1];
+      sigma = 0.;
+    }
+  }
+}
+
+template <int d>
+void NS_SPG_VelocityBlocks(
+  double Mult, const double *coeff, const double *param, double hK,
+  const double**OrigValues, const int *N_BaseFuncts, double ***LocMatrices,
+  double **, double delta0, double mu0, bool equal_order, bool oseen)
+{
+  if(d == 3)
+    ErrThrow("NS_SPG_VelocityBlocks: only 2D is implemented");
+  double ** MatrixA11 = LocMatrices[0];
+  double ** MatrixA12 = LocMatrices[1];
+  double ** MatrixA21 = LocMatrices[d];
+  double ** MatrixA22 = LocMatrices[d+1];
+  int N_U = N_BaseFuncts[0];
+  const double * u = OrigValues[0];
+  const double * u_x = OrigValues[2];
+  const double * u_y = OrigValues[3];
+  const double * u_xx = OrigValues[2+2*d];
+  const double * u_yy = OrigValues[2+2*d+1];
+  const double nu = coeff[0];
+  double b1, b2, sigma;
+  spg_convection(coeff, param, oseen, b1, b2, sigma);
+  double delta, mu;
+  compute_SPG_parameters(hK, nu, delta0, mu0, equal_order, delta, mu);
+
+  for(int i = 0; i < N_U; i++)
+  {
+    const double test = u[i];
+    const double test_x = u_x[i];
+    const double test_y = u_y[i];
+    const double bgradv = b1*test_x + b2*test_y;
+    for(int j = 0; j < N_U; j++)
+    {
+      const double ansatz = u[j];
+      const double ansatz_x = u_x[j];
+      const double ansatz_y = u_y[j];
+      // strong residual of the ansatz function (acts componentwise)
+      const double residual = -nu*(u_xx[j] + u_yy[j]) + b1*ansatz_x + b2*ansatz_y
+                              + sigma*ansatz;
+      double val = nu*(test_x*ansatz_x + test_y*ansatz_y);   // nu (grad u, grad v)
+      val += (b1*ansatz_x + b2*ansatz_y)*test;               // ((b.grad)u, v)
+      val += sigma*ansatz*test;                              // (sigma u, v)
+      val += delta*residual*bgradv;                          // SUPG
+      MatrixA11[i][j] += Mult*(val + mu*ansatz_x*test_x);    // grad-div
+      MatrixA22[i][j] += Mult*(val + mu*ansatz_y*test_y);
+      MatrixA12[i][j] += Mult*mu*ansatz_y*test_x;
+      MatrixA21[i][j] += Mult*mu*ansatz_x*test_y;
+    }
+  }
+}
+
+template <int d>
+void NS_SPG_GradientBlocks(
+  double Mult, const double *coeff, const double *param, double hK,
+  const double**OrigValues, const int *N_BaseFuncts, double ***LocMatrices,
+  double **, double delta0, double mu0, bool equal_order, bool oseen)
+{
+  if(d == 3)
+    ErrThrow("NS_SPG_GradientBlocks: only 2D is implemented");
+  double ** MatrixB1T = LocMatrices[7];
+  double ** MatrixB2T = LocMatrices[8];
+  int N_U = N_BaseFuncts[0];
+  int N_P = N_BaseFuncts[1];
+  const double * p = OrigValues[1];
+  const double * u_x = OrigValues[2];
+  const double * u_y = OrigValues[3];
+  const double * p_x = OrigValues[2+d];
+  const double * p_y = OrigValues[3+d];
+  const double nu = coeff[0];
+  double b1, b2, sigma;
+  spg_convection(coeff, param, oseen, b1, b2, sigma);
+  double delta, mu;
+  compute_SPG_parameters(hK, nu, delta0, mu0, equal_order, delta, mu);
+
+  for(int i = 0; i < N_U; i++)
+  {
+    const double test_x = u_x[i];
+    const double test_y = u_y[i];
+    const double bgradv = delta*(b1*test_x + b2*test_y);
+    for(int j = 0; j < N_P; j++)
+    {
+      // -(div v, p) + (grad p, delta (b.grad) v)
+      MatrixB1T[i][j] += Mult*(-p[j]*test_x + bgradv*p_x[j]);
+      MatrixB2T[i][j] += Mult*(-p[j]*test_y + bgradv*p_y[j]);
+    }
+  }
+}
+
+template <int d>
+void NS_SPG_PressureBlocks(
+  double Mult, const double *coeff, const double *param, double hK,
+  const double**OrigValues, const int *N_BaseFuncts, double ***LocMatrices,
+  double **, double delta0, double mu0, bool equal_order, bool oseen)
+{
+  if(d == 3)
+    ErrThrow("NS_SPG_PressureBlocks: only 2D is implemented");
+  double ** MatrixC  = LocMatrices[4];
+  double ** MatrixB1 = LocMatrices[5];
+  double ** MatrixB2 = LocMatrices[6];
+  int N_U = N_BaseFuncts[0];
+  int N_P = N_BaseFuncts[1];
+  const double * u = OrigValues[0];
+  const double * u_x = OrigValues[2];
+  const double * u_y = OrigValues[3];
+  const double * p_x = OrigValues[2+d];
+  const double * p_y = OrigValues[3+d];
+  const double * u_xx = OrigValues[2+2*d];
+  const double * u_yy = OrigValues[2+2*d+1];
+  const double nu = coeff[0];
+  double b1, b2, sigma;
+  spg_convection(coeff, param, oseen, b1, b2, sigma);
+  double delta, mu;
+  compute_SPG_parameters(hK, nu, delta0, mu0, equal_order, delta, mu);
+
+  for(int i = 0; i < N_P; i++)
+  {
+    const double test_x = delta*p_x[i];
+    const double test_y = delta*p_y[i];
+    // PSPG: (-nu Lap u + (b.grad)u + sigma u, delta grad q); ParMooN sign: -( )
+    for(int j = 0; j < N_U; j++)
+    {
+      const double residual = -nu*(u_xx[j] + u_yy[j]) + b1*u_x[j] + b2*u_y[j]
+                              + sigma*u[j];
+      MatrixB1[i][j] -= Mult*residual*test_x;
+      MatrixB2[i][j] -= Mult*residual*test_y;
+    }
+    // (grad p, delta grad q); ParMooN sign: -( )
+    for(int j = 0; j < N_P; j++)
+    {
+      MatrixC[i][j] -= Mult*(test_x*p_x[j] + test_y*p_y[j]);
+    }
+  }
+}
+
+template <int d>
+void NS_SPG_RightHandSide(
+  double Mult, const double *coeff, const double *param, double hK,
+  const double**OrigValues, const int *N_BaseFuncts, double ***,
+  double **LocRhs, double delta0, double mu0, bool equal_order, bool oseen)
+{
+  if(d == 3)
+    ErrThrow("NS_SPG_RightHandSide: only 2D is implemented");
+  double * Rhs1 = LocRhs[0];
+  double * Rhs2 = LocRhs[1];
+  double * Rhs_div = LocRhs[d];
+  int N_U = N_BaseFuncts[0];
+  int N_P = N_BaseFuncts[1];
+  const double * u = OrigValues[0];
+  const double * p = OrigValues[1];
+  const double * u_x = OrigValues[2];
+  const double * u_y = OrigValues[3];
+  const double * p_x = OrigValues[2+d];
+  const double * p_y = OrigValues[3+d];
+  const double nu = coeff[0];
+  const double f1 = coeff[1];
+  const double f2 = coeff[2];
+  const double g = coeff[d+1]; // divergence
+  double b1, b2, sigma;
+  spg_convection(coeff, param, oseen, b1, b2, sigma);
+  double delta, mu;
+  compute_SPG_parameters(hK, nu, delta0, mu0, equal_order, delta, mu);
+
+  for(int i = 0; i < N_U; i++)
+  {
+    const double bgradv = delta*(b1*u_x[i] + b2*u_y[i]);
+    Rhs1[i] += Mult*(u[i] + bgradv)*f1;
+    Rhs2[i] += Mult*(u[i] + bgradv)*f2;
+  }
+  for(int i = 0; i < N_P; i++)
+  {
+    // -(g, q) - (f, delta grad q)   (ParMooN sign of the continuity row)
+    Rhs_div[i] -= Mult*(p[i]*g + delta*(f1*p_x[i] + f2*p_y[i]));
+  }
+}
+
+#ifdef __2D__
+template void NS_SPG_VelocityBlocks<2>(
+  double Mult, const double *coeff, const double *param, double hK,
+  const double**OrigValues, const int *N_BaseFuncts, double ***LocMatrices,
+  double **, double delta0, double mu0, bool equal_order, bool oseen);
+template void NS_SPG_GradientBlocks<2>(
+  double Mult, const double *coeff, const double *param, double hK,
+  const double**OrigValues, const int *N_BaseFuncts, double ***LocMatrices,
+  double **, double delta0, double mu0, bool equal_order, bool oseen);
+template void NS_SPG_PressureBlocks<2>(
+  double Mult, const double *coeff, const double *param, double hK,
+  const double**OrigValues, const int *N_BaseFuncts, double ***LocMatrices,
+  double **, double delta0, double mu0, bool equal_order, bool oseen);
+template void NS_SPG_RightHandSide<2>(
+  double Mult, const double *coeff, const double *param, double hK,
+  const double**OrigValues, const int *N_BaseFuncts, double ***,
+  double **LocRhs, double delta0, double mu0, bool equal_order, bool oseen);
+#else
+template void NS_SPG_VelocityBlocks<3>(
+  double Mult, const double *coeff, const double *param, double hK,
+  const double**OrigValues, const int *N_BaseFuncts, double ***LocMatrices,
+  double **, double delta0, double mu0, bool equal_order, bool oseen);
+template void NS_SPG_GradientBlocks<3>(
+  double Mult, const double *coeff, const double *param, double hK,
+  const double**OrigValues, const int *N_BaseFuncts, double ***LocMatrices,
+  double **, double delta0, double mu0, bool equal_order, bool oseen);
+template void NS_SPG_PressureBlocks<3>(
+  double Mult, const double *coeff, const double *param, double hK,
+  const double**OrigValues, const int *N_BaseFuncts, double ***LocMatrices,
+  double **, double delta0, double mu0, bool equal_order, bool oseen);
+template void NS_SPG_RightHandSide<3>(
+  double Mult, const double *coeff, const double *param, double hK,
+  const double**OrigValues, const int *N_BaseFuncts, double ***,
+  double **LocRhs, double delta0, double mu0, bool equal_order, bool oseen);
+#endif

@@ -191,6 +191,8 @@ class LocalAssembling
     void set_parameters_for_nse_dg();
     // supg case only
     void set_parameters_for_nse_supg(LocalAssembling_type type);
+    /// SUPG/PSPG/grad-div method for Oseen/Navier-Stokes (Afzal, Ahmed, John 2026)
+    void set_parameters_for_nse_spg(LocalAssembling_type type);
 
     /** Depending on the NSTYPE all parameters are set within this function.
      *

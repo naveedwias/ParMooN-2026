@@ -765,6 +765,12 @@ PETScSolver::PETScSolver(const BlockMatrix&, const ParameterDatabase&)
   ErrThrow("ParMooN has been compiled without PETSc, therefore a PETScSolver "
            "can not be created.");
 }
+PETScSolver::PETScSolver(const CompositeOperator<BlockVector>&,
+                         const ParameterDatabase&)
+{
+  ErrThrow("ParMooN has been compiled without PETSc, therefore a PETScSolver "
+           "can not be created.");
+}
 PETScSolver::~PETScSolver()
 {
   

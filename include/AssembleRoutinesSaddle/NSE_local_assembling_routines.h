@@ -272,3 +272,58 @@ void NSParamsVelocityGradient(const double *in, double *out);
 
 
 #endif // INCLUDE_ASSEMBLEROUTINESSADDLE_NSE_LOCAL_ASSEMBLING_ROUTINES_H
+
+///////////////////////////////////////////////////////////////////////////////
+// SUPG/PSPG/grad-div stabilized method for the Oseen and the stationary
+// Navier-Stokes problem (space_discretization_type "supg_pspg_graddiv"),
+// see M. Afzal, N. Ahmed, V. John, Comput. Math. Appl. 223 (2026) 467-486,
+// Eqs. (7)-(8) and (11)-(12). Only NSTYPE 14 (A, B, B^T, C blocks) and 2D.
+//
+//   A((u,p),(v,q)) = nu(grad u, grad v) + ((b.grad)u + sigma u, v) - (div v, p)
+//                  + (div u, q) + sum_K mu_K (div u, div v)_K
+//                  + sum_K (-nu Lap u + (b.grad)u + sigma u + grad p,
+//                           delta_K ((b.grad)v + grad q))_K
+//   L((v,q))       = (f, v) + sum_K (f, delta_K ((b.grad)v + grad q))_K
+//
+// ParMooN stores the continuity row with the opposite sign, i.e. the B and C
+// blocks and the pressure right-hand side are assembled as -( ... ).
+//
+// b = coeff[4..5], sigma = coeff[6] for Oseen (oseen == true), b = param[0..1]
+// (current velocity iterate) and sigma = 0 for Navier-Stokes.
+///////////////////////////////////////////////////////////////////////////////
+/// @brief stabilization parameters delta_K and mu_K, (11) and (12) in the paper
+/// with delta_0 = spg_delta0 and mu_0 = spg_mu0:
+///   inf-sup stable pairs : delta_K = delta_0 h_K^2, mu_K = mu_0
+///   equal order pairs    : delta_K = delta_0 h_K (nu < h_K), delta_0 h_K^2 else
+///                          mu_K    = mu_0 h_K
+void compute_SPG_parameters(double hK, double nu, double delta0, double mu0,
+                            bool equal_order, double& deltaK, double& muK);
+
+/// @brief velocity-velocity blocks A11, A12, A21, A22 (Galerkin, SUPG, grad-div)
+template <int d>
+void NS_SPG_VelocityBlocks(
+  double Mult, const double *coeff, const double *param, double hK,
+  const double**OrigValues, const int *N_BaseFuncts, double ***LocMatrices,
+  double **, double delta0, double mu0, bool equal_order, bool oseen);
+
+/// @brief pressure-velocity blocks B^T (Galerkin -(div v,p) + SUPG with grad p)
+template <int d>
+void NS_SPG_GradientBlocks(
+  double Mult, const double *coeff, const double *param, double hK,
+  const double**OrigValues, const int *N_BaseFuncts, double ***LocMatrices,
+  double **, double delta0, double mu0, bool equal_order, bool oseen);
+
+/// @brief PSPG contributions to B and the C block (the Galerkin part of B is
+/// assembled by NSDivergenceBlocks)
+template <int d>
+void NS_SPG_PressureBlocks(
+  double Mult, const double *coeff, const double *param, double hK,
+  const double**OrigValues, const int *N_BaseFuncts, double ***LocMatrices,
+  double **, double delta0, double mu0, bool equal_order, bool oseen);
+
+/// @brief right-hand side (f, v + delta_K (b.grad)v) and -(g, q) - delta_K (f, grad q)
+template <int d>
+void NS_SPG_RightHandSide(
+  double Mult, const double *coeff, const double *param, double hK,
+  const double**OrigValues, const int *N_BaseFuncts, double ***,
+  double **LocRhs, double delta0, double mu0, bool equal_order, bool oseen);
