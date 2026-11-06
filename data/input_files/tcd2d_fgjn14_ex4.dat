@@ -1,8 +1,8 @@
 [ ParMooN database: adaptive SUPG (FGJN14), Example 4 ]
-outfile: ex4tr.out
+outfile: ex4full.out
 boundary_file: Default_UnitSquare
-geo_file: TwoTriangles
-refinement_n_initial_steps: 5
+geo_file: ../ParMooN-2026/data/mesh/UnitSquare25x25_tria.GEO
+refinement_n_initial_steps: 0
 conforming_closure: true
 problem_type: 2
 example: 15
@@ -38,4 +38,4 @@ tcd_tol2: 5.0e-5
 tcd_estimator_mu0: 0.0
 tcd_refine_every: 1
 tcd_max_cell_level: 14
-tcd_write_table: ex4tr_table.txt
+tcd_write_table: ex4full_table.txt
