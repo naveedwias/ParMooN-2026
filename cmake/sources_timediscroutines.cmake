@@ -8,6 +8,7 @@
 list(APPEND PARMOON_INCLUDE_DIRS "include/TimeDiscRoutines")
 
 list(APPEND TimeDisc_SOURCES "${PROJECT_SOURCE_DIR}/src/TimeDiscRoutines/TimeDiscretizations.C")
+list(APPEND TimeDisc_SOURCES "${PROJECT_SOURCE_DIR}/src/TimeDiscRoutines/TrapezoidalAB2.C")
 # Source files used in 2D and 3D.
 
 list(APPEND PARMOON_SOURCES_2D ${TimeDisc_SOURCES} )
