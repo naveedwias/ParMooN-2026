@@ -248,6 +248,71 @@ def plot_meshes(args, run_dir, label):
     print(f"wrote {out}")
 
 
+
+def spatial_summary(args, runs):
+    """One line per run (mesh): max/final DoFs and cells, max_t error, max_t eta,
+    min/mean/max effectivity index, number of steps; spatial convergence rates
+    between consecutive runs computed from the DoFs (rate w.r.t. h ~ DoFs^-1/2)
+    and a log-log figure of max_t error and max_t eta versus DoFs. Meant for
+    series over refinement_n_initial_steps (tcd and tnse programs)."""
+    rows = []
+    for label, tab in runs:
+        err = column(tab, "error_supg", "error_spg")
+        eta = column(tab, "eta")
+        eff = column(tab, "effectivity")
+        dofs = column(tab, "dofs")
+        cells = column(tab, "cells")
+        if err is None or eta is None or dofs is None:
+            return
+        ok = err > 0
+        rows.append(dict(label=label, dofs=dofs[-1], cells=cells[-1] if cells is not None else 0,
+                         err=err[ok].max() if ok.any() else 0., eta=eta.max(),
+                         eff_min=eff[ok].min() if ok.any() else 0.,
+                         eff_mean=eff[ok].mean() if ok.any() else 0.,
+                         eff_max=eff[ok].max() if ok.any() else 0., steps=len(err)))
+    if not rows:
+        return
+    out = os.path.join(args.outdir, f"{args.name}_summary.txt")
+    with open(out, "w") as f:
+        f.write("# run  cells  dofs  max_t_error  max_t_eta  eff_min  eff_mean  eff_max  steps"
+                "  rate_error  rate_eta   (rates w.r.t. h ~ DoFs^-1/2 between consecutive runs)\n")
+        for i, r in enumerate(rows):
+            rate_e = rate_eta = float("nan")
+            if i > 0 and rows[i-1]["dofs"] != r["dofs"]:
+                q = 0.5*np.log(r["dofs"]/rows[i-1]["dofs"])
+                if rows[i-1]["err"] > 0 and r["err"] > 0:
+                    rate_e = np.log(rows[i-1]["err"]/r["err"])/q
+                if rows[i-1]["eta"] > 0 and r["eta"] > 0:
+                    rate_eta = np.log(rows[i-1]["eta"]/r["eta"])/q
+            f.write(f"{r['label']}  {int(r['cells'])}  {int(r['dofs'])}  {r['err']:.4e}  {r['eta']:.4e}"
+                    f"  {r['eff_min']:.3f}  {r['eff_mean']:.3f}  {r['eff_max']:.3f}  {r['steps']}"
+                    f"  {rate_e:.2f}  {rate_eta:.2f}\n")
+    print(f"wrote {out}")
+    if len(rows) > 1 and all(r["err"] > 0 for r in rows):
+        import matplotlib
+        matplotlib.use("Agg")
+        import matplotlib.pyplot as plt
+        d = np.array([r["dofs"] for r in rows])
+        e = np.array([r["err"] for r in rows])
+        et = np.array([r["eta"] for r in rows])
+        fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(8.5, 3.4))
+        ax1.loglog(d, e, "o-", label=r"$\max_t$ error")
+        ax1.loglog(d, et, "s--", label=r"$\max_t\, \eta$")
+        for k in (1, 2, 3):
+            ax1.loglog(d, e[-1]*(d/d[-1])**(-k/2), ":", color="gray", lw=0.8)
+        ax1.set_xlabel("DoFs"); ax1.legend(); ax1.grid(True, alpha=0.3)
+        ax2.semilogx(d, [r["eff_mean"] for r in rows], "o-", label="mean")
+        ax2.semilogx(d, [r["eff_min"] for r in rows], "v:", label="min")
+        ax2.semilogx(d, [r["eff_max"] for r in rows], "^:", label="max")
+        ax2.set_xlabel("DoFs"); ax2.set_ylabel("effectivity index"); ax2.legend(); ax2.grid(True, alpha=0.3)
+        fig.suptitle(args.name)
+        fig.tight_layout(rect=(0, 0, 1, 0.94))
+        out = os.path.join(args.outdir, f"{args.name}_spatial.{args.format}")
+        fig.savefig(out, dpi=150)
+        plt.close(fig)
+        print(f"wrote {out}")
+
+
 # ---------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
@@ -326,6 +391,7 @@ def main():
                     plot_meshes(args, run_dir, label)
     if runs:
         plot_tables(args, runs)
+        spatial_summary(args, runs)
         res = [(label, tab["_results"]) for label, tab in runs if "_results" in tab]
         if res:
             out = os.path.join(args.outdir, f"{args.name}_results.txt")
