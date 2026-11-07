@@ -4,6 +4,7 @@ Run several simulations with the time-dependent adaptive programs
 
   parMooN_tcd2d_supg_adaptive_SEQUENTIAL   (de Frutos, Garcia-Archilla, John, Novo 2014)
   parMooN_tnse2d_spg_adaptive_SEQUENTIAL   (adaptive SUPG/PSPG/grad-div for time-dependent NSE)
+  parMooN_tnse2d_bdf2imex_cip_SEQUENTIAL   (BDF2-IMEX with CIP for Scott-Vogelius / Taylor-Hood)
 
 from a base input file, varying one or more parameters, store the outputs and
 plot the per-time tables (effectivity index, estimator and error, number of
@@ -23,6 +24,12 @@ Examples
   # transient Navier-Stokes Example 1 for several pairs and viscosities
   python3 transient_study.py --program tnse --base ../ParMooN-2026/data/input_files/tnse2d_spg_ex1.dat \\
       --name tnse_ex1 --vary VELOCITY_SPACE/PRESSURE_SPACE=2/1,2/2,1/1 reynolds_number=100,1000
+
+  # BDF2-IMEX, Table 1: SV-CIP on n = 4, 8, 16 with dt = h^(3/2)
+  python3 transient_study.py --program bdf2 --base ../ParMooN-2026/data/input_files/tnse2d_bdf2imex_cip.dat \
+      --name sv_cip --vary refinement_n_initial_steps/time_step_length=3/0.125,4/0.0441942,5/0.015625
+  # (the special key a/b=v1/w1,v2/w2 sets two parameters at once); the results
+  # E_0, E_p, D of all runs are collected in <name>_results.txt with rates
 
   # only plot existing results
   python3 transient_study.py --program tnse --name tnse_ex1 --plot-only
@@ -44,6 +51,7 @@ import numpy as np
 PROGRAMS = {
     "tcd": dict(exe="parMooN_tcd2d_supg_adaptive_SEQUENTIAL", table_key="tcd_write_table"),
     "tnse": dict(exe="parMooN_tnse2d_spg_adaptive_SEQUENTIAL", table_key="tnse_write_table"),
+    "bdf2": dict(exe="parMooN_tnse2d_bdf2imex_cip_SEQUENTIAL", table_key="bdf2_write_table"),
 }
 
 
@@ -93,10 +101,14 @@ def run_name(name, combo):
 
 def apply_combo(lines, combo):
     for key, val in combo:
-        if key == "VELOCITY_SPACE/PRESSURE_SPACE":
-            v, p = val.split("/")
-            lines = set_param(lines, "VELOCITY_SPACE", v)
-            lines = set_param(lines, "PRESSURE_SPACE", p)
+        if "/" in key:
+            # several parameters set at once: a/b=v/w
+            keys = key.split("/")
+            vals = val.split("/")
+            if len(keys) != len(vals):
+                sys.exit(f"--vary {key}={val}: number of values does not match")
+            for k, v in zip(keys, vals):
+                lines = set_param(lines, k, v)
         else:
             lines = set_param(lines, key, val)
     return lines
@@ -108,16 +120,24 @@ def apply_combo(lines, combo):
 def read_table(path):
     header = None
     rows = []
+    results = None
     for line in open(path):
+        if line.startswith("# RESULTS"):
+            results = [float(x) for x in line.split()[2:]]
+            continue
         if line.startswith("#"):
-            header = line[1:].split()
+            if header is None:
+                header = line[1:].split()
             continue
         if line.strip():
             rows.append([float(x) for x in line.split()])
     if header is None or not rows:
         return None
     data = np.array(rows)
-    return {h: data[:, i] for i, h in enumerate(header) if i < data.shape[1]}
+    tab = {h: data[:, i] for i, h in enumerate(header) if i < data.shape[1]}
+    if results is not None:
+        tab["_results"] = results  # E_0 E_p D L2(u(T)) H1(u(T)) max_u
+    return tab
 
 
 def column(tab, *names):
@@ -137,12 +157,17 @@ def plot_tables(args, runs):
     plt.rcParams.update({"font.size": 9, "axes.grid": True, "grid.alpha": 0.3})
     colors = plt.cm.tab10(np.linspace(0, 1, 10))
 
-    panels = [("effectivity", "effectivity index", False),
-              ("error", r"$\eta$ (solid), error (dashed)", True),
-              ("cells", "number of cells", False),
-              ("dt", "time step", True)]
-    if any(column(t, "picard") is not None for _, t in runs):
-        panels.append(("picard", "Picard iterations", False))
+    if any(column(t, "L2(u)") is not None for _, t in runs):
+        # BDF2-IMEX tables
+        panels = [("L2(u)", r"$\|u-u_h\|_0$", True), ("L2(p)", r"$\|p-p_h\|_0$", True),
+                  ("div(u)", r"$\|\nabla\cdot u_h\|_0$", True), ("F_m", r"energy $F^m$", False)]
+    else:
+        panels = [("effectivity", "effectivity index", False),
+                  ("error", r"$\eta$ (solid), error (dashed)", True),
+                  ("cells", "number of cells", False),
+                  ("dt", "time step", True)]
+        if any(column(t, "picard") is not None for _, t in runs):
+            panels.append(("picard", "Picard iterations", False))
     fig, axes = plt.subplots(1, len(panels), figsize=(3.8*len(panels), 3.3), squeeze=False)
     axes = axes.ravel()
     for i, (label, tab) in enumerate(runs):
@@ -161,6 +186,8 @@ def plot_tables(args, runs):
                     continue
                 if key == "effectivity" and not np.all(y > 0):
                     continue
+                if log and not np.all(y > 0):
+                    y = np.where(y > 0, y, np.nan)
                 ax.plot(t, y, "-", color=c, label=label)
             ax.set_xlabel("t")
             ax.set_ylabel(ylabel)
@@ -299,6 +326,19 @@ def main():
                     plot_meshes(args, run_dir, label)
     if runs:
         plot_tables(args, runs)
+        res = [(label, tab["_results"]) for label, tab in runs if "_results" in tab]
+        if res:
+            out = os.path.join(args.outdir, f"{args.name}_results.txt")
+            with open(out, "w") as f:
+                f.write("# run  E_0  E_p  D  L2(u(T))  H1(u(T))  max_u  [rates of E_0, E_p w.r.t. the previous run, factor 2 assumed]\n")
+                prev = None
+                for label, r in res:
+                    rate = ""
+                    if prev is not None and prev[0] > 0 and r[0] > 0:
+                        rate = f"  {np.log2(prev[0]/r[0]):.2f} {np.log2(prev[1]/r[1]) if prev[1] > 0 and r[1] > 0 else float('nan'):.2f}"
+                    f.write(f"{label}  " + "  ".join(f"{x:.4e}" for x in r) + rate + "\n")
+                    prev = r
+            print(f"wrote {out}")
     else:
         print("no tables to plot")
 

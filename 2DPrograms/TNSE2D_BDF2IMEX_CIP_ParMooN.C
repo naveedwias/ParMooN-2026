@@ -284,7 +284,7 @@ int main(int argc, char* argv[])
     Example_NSE2D stokes_example_nu1(example.get_exact(),
       std::vector<BoundCondFunct2D*>(example.get_bc(), example.get_bc() + 3),
       std::vector<BoundValueFunct2D*>(example.get_bd(), example.get_bd() + 3),
-      bdf2imex_stokes_projection_coeffs(), 1.);
+      bdf2imex_stokes_projection_coeffs(parmoon_db["example"]), 1.);
     ParameterDatabase db_s(db_time);
     db_s["reynolds_number"].set_range(1.e-10, 1.e10);
     db_s["reynolds_number"] = 1.;

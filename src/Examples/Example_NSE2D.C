@@ -130,8 +130,15 @@ namespace bdf2imex_smooth
 #include "NSE_2D/BDF2IMEX_smooth.h"
 }
 
-CoeffFct2D bdf2imex_stokes_projection_coeffs()
+namespace bdf2imex_lake
 {
+#include "NSE_2D/BDF2IMEX_lake.h"
+}
+
+CoeffFct2D bdf2imex_stokes_projection_coeffs(int example)
+{
+  if(example == 26)
+    return bdf2imex_lake::StokesProjectionCoeffs;
   return bdf2imex_smooth::StokesProjectionCoeffs;
 }
 
@@ -776,6 +783,20 @@ case 7:
     bdf2imex_smooth::ExampleFile();
     break;
 
+  case 26: // BDF2-IMEX / CIP / Scott-Vogelius, lake at rest (u = 0)
+    exact_solution.push_back( bdf2imex_lake::ExactU1 );
+    exact_solution.push_back( bdf2imex_lake::ExactU2 );
+    exact_solution.push_back( bdf2imex_lake::ExactP );
+    boundary_conditions.push_back( bdf2imex_lake::BoundCondition );
+    boundary_conditions.push_back( bdf2imex_lake::BoundCondition );
+    boundary_conditions.push_back( BoundConditionNoBoundCondition );
+    boundary_data.push_back( bdf2imex_lake::U1BoundValue );
+    boundary_data.push_back( bdf2imex_lake::U2BoundValue );
+    boundary_data.push_back( BoundaryValueHomogenous );
+    problem_coefficients = bdf2imex_lake::LinCoeffs;
+    bdf2imex_lake::ExampleFile();
+    break;
+
 
   default:
     ErrThrow("Unknown Navier-Stokes example",  example_code, " !");
@@ -828,6 +849,7 @@ double Example_NSE2D::get_nu() const
   case 23:
   case 24:
   case 25:
+  case 26:
     {
       nu = this->example_database["reynolds_number"];
       nu = 1./nu;
