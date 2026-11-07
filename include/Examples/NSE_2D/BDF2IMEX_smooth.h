@@ -6,7 +6,7 @@
 // The amplitude A is TDatabase::ParamDB->P0 (default 1 if P0 == 0 is not set).
 // Homogeneous Dirichlet data; the time is TDatabase::TimeDB->CURRENTTIME.
 // Coefficient layout: coeff[0] = nu, coeff[1..2] = f, coeff[3] = 0 (divergence),
-// coeff[4..5] = u (convection field), coeff[6] = 0.
+// coeff[4] = 1 - nu (so that ParMooN's grad-div parameter equals graddiv_stab).
 // StokesProjectionCoeffs gives f_s = -nu Laplace(u) + grad p for the Stokes
 // projection of the exact velocity (same layout).
 // (derivatives generated with sympy)
@@ -91,8 +91,12 @@ void LinCoeffs(int n_points, const double *X, const double *Y,
     coeffs[i][1] = dt1 - nu*u1[3] + u1[0]*u1[1] + u2[0]*u1[2] + p[1];
     coeffs[i][2] = dt2 - nu*u2[3] + u1[0]*u2[1] + u2[0]*u2[2] + p[2];
     coeffs[i][3] = 0.;
-    coeffs[i][4] = u1[0];
-    coeffs[i][5] = u2[0];
+    // ParMooN's grad-div routine uses delta = graddiv_stab * (nu + coeff[4]
+    // L_0^2); with coeff[4] = 1 - nu and L_0 = 1 this gives exactly delta =
+    // graddiv_stab = gamma as in the paper. (The convection field is taken
+    // from the finite element function, not from the coefficients.)
+    coeffs[i][4] = 1. - nu;
+    coeffs[i][5] = 0.;
     coeffs[i][6] = 0.;
   }
 }
