@@ -43,6 +43,11 @@
 #include "Matrix2D.h"
 #include "FESpace2D.h"
 #include "Structure.h"
+#include "QuadratureFormulaDatabase.h"
+#include "QuadFormula.h"
+#include "Collection.h"
+#include "BaseCell.h"
+#include "Vertex.h"
 #include "FEMatrix.h"
 #include "CIP_NSE2D.h"
 #include <algorithm>
@@ -76,17 +81,40 @@ BlockFEMatrix extended_matrix(std::shared_ptr<const TFESpace2D> v,
 // convection field of the local routines is 'field'
 void assemble_blocks(NavierStokes<2>& ns, BlockFEMatrix& Mat, BlockVector* rhs,
                      const ParameterDatabase& db, LocalAssembling_type type,
-                     const BlockVector& field)
+                     const BlockVector& field, bool reset = true)
 {
+  // the local assembling of ParMooN's Navier-Stokes routines expects the
+  // velocity components and the pressure (d+1 functions)
   TFEVectFunct2D f_fct(ns.get_velocity_space(), "field",
                        const_cast<double*>(field.get_entries()), 2);
   auto u1 = f_fct.GetComponent(0);
   auto u2 = f_fct.GetComponent(1);
-  std::vector<const TFEFunction2D*> fcts = {u1.get(), u2.get()};
+  size_t n_u_local = ns.get_velocity_space()->get_n_dof();
+  TFEFunction2D p_fct(ns.get_pressure_space(), "field_p",
+                      const_cast<double*>(field.get_entries()) + 2*n_u_local);
+  std::vector<const TFEFunction2D*> fcts = {u1.get(), u2.get(), &p_fct};
   LocalAssembling<2> la(db, type, fcts, ns.get_example().get_coeffs());
+  // the NavierStokes constructor sets INTERNAL_PROBLEM_LINEAR according to
+  // its problem_type; with 1 the quadrature degree is 2k, which does not
+  // integrate the trilinear convective term exactly (loss of skew-symmetry)
+  TDatabase::ParamDB->INTERNAL_PROBLEM_LINEAR = 0;
   auto blocks = Mat.get_blocks_uniquely();
-  for(auto& b : blocks)
-    b->reset();
+  if(reset)
+    for(auto& b : blocks)
+      b->reset();
+  if(type == LocalAssembling_type::NavierStokesNL)
+  {
+    // ParMooN's 'NavierStokesNL' local assembling contains the complete
+    // velocity-velocity block (viscous term, grad-div and convective term),
+    // as in NavierStokes::assemble_nonlinear_term the velocity blocks are
+    // reset before it is assembled
+    for(size_t r = 0; r < 2; ++r)
+      for(size_t c = 0; c < 2; ++c)
+      {
+        bool tr;
+        Mat.get_block(r, c, tr)->reset();
+      }
+  }
   // NSTYPE 4: A11 A12 B1T / A21 A22 B2T / B1 B2 (0); NSTYPE 14 adds C
   TSquareMatrix2D* sq[5];
   int n_sq = 0;
@@ -119,9 +147,30 @@ void assemble_blocks(NavierStokes<2>& ns, BlockFEMatrix& Mat, BlockVector* rhs,
   BlockVector scratch(ns.get_rhs());
   scratch.reset();
   BlockVector& target = (rhs != nullptr) ? *rhs : scratch;
-  target.reset();
+  if(reset)
+    target.reset();
   double* rhs_array[3] = {target.block(0), target.block(1), target.block(2)};
   const TFESpace2D* rhs_spaces[3] = {spaces[0], spaces[0], spaces[1]};
+  if(type == LocalAssembling_type::TimeNavierStokesMass)
+  {
+    // NSMassMatrix writes the two diagonal velocity blocks into the first two
+    // local matrices
+    TSquareMatrix2D* sq_m[2] = {reinterpret_cast<TSquareMatrix2D*>(block(0, 0)),
+                                reinterpret_cast<TSquareMatrix2D*>(block(1, 1))};
+    TMatrix2D* re_null[4] = {nullptr, nullptr, nullptr, nullptr};
+    Assemble2D(2, spaces, 2, sq_m, 0, re_null, n_rhs, rhs_array, rhs_spaces, bc,
+               bd, la, false);
+    return;
+  }
+  if(type == LocalAssembling_type::NavierStokesNL)
+  {
+    // as in NavierStokes::assemble_nonlinear_term: only the velocity blocks
+    TMatrix2D* re_null[4] = {nullptr, nullptr, nullptr, nullptr};
+    double* rhs_null[3] = {nullptr, nullptr, nullptr};
+    Assemble2D(2, spaces, n_sq, sq, 4, re_null, 3, rhs_null, rhs_spaces, bc,
+               bd, la, false);
+    return;
+  }
   Assemble2D(2, spaces, n_sq, sq, n_re, re, n_rhs, rhs_array, rhs_spaces, bc,
              bd, la, false);
 }
@@ -152,6 +201,10 @@ int main(int argc, char* argv[])
   defaults.add("bdf2_start", "stokes_projection", "starting values u^0, u^1",
                {"stokes_projection", "euler"});
   defaults.add("bdf2_write_table", "", "file name for the per-step table");
+  defaults.add("bdf2_start_pressure", "interpolation", "pressure of the starting "
+               "values (only for the error table): interpolant of the exact "
+               "pressure, or the pressure of the Stokes projection",
+               {"interpolation", "stokes"});
   defaults.add("pressure_amplitude", 1., "amplitude A of the pressure in "
                "example 25 (TDatabase::ParamDB->P0)", -1.e10, 1.e10);
   defaults.merge(NavierStokes<2>::default_nse_database(), true);
@@ -163,7 +216,11 @@ int main(int argc, char* argv[])
   TDatabase::ParamDB->P0 = parmoon_db["pressure_amplitude"];
   TDatabase::ParamDB->FLOW_PROBLEM_TYPE = 5;
   parmoon_db["problem_type"] = 3; // the steps are linear (Oseen type)
-  TDatabase::ParamDB->INTERNAL_PROBLEM_LINEAR = 1;
+  // INTERNAL_PROBLEM_LINEAR = 0 makes ParMooN choose the quadrature degree
+  // 3 k instead of 2 k, which integrates the trilinear convective term
+  // exactly; with the lower degree the skew-symmetry of the convective term
+  // is lost and the scheme is not energy stable for small nu
+  TDatabase::ParamDB->INTERNAL_PROBLEM_LINEAR = 0;
 
   TDomain domain(parmoon_db);
   check_parameters_consistency_NSE(parmoon_db);
@@ -186,10 +243,6 @@ int main(int argc, char* argv[])
   // the Navier-Stokes example and the Stokes projection example (same
   // solution and boundary data, right-hand side -nu Laplace(u) + grad p)
   Example_NSE2D example(parmoon_db);
-  Example_NSE2D stokes_example(example.get_exact(),
-    std::vector<BoundCondFunct2D*>(example.get_bc(), example.get_bc() + 3),
-    std::vector<BoundValueFunct2D*>(example.get_bd(), example.get_bd() + 3),
-    bdf2imex_stokes_projection_coeffs(), example.get_nu());
 
   // the system object: spaces, matrix structure, solution, output, errors.
   // Its own assembling (galerkin, problem_type 3 -> Stokes) is used for the
@@ -216,14 +269,39 @@ int main(int argc, char* argv[])
               b_vec(ns.get_solution()), rhs(ns.get_rhs()), w(ns.get_solution());
   Solver<BlockFEMatrix, BlockVector> solver(parmoon_db);
 
+  std::string start_pressure = parmoon_db["bdf2_start_pressure"];
   // --- Stokes projection of the exact solution at the current time ----------
+  // Standard Stokes projection: (grad w_h, grad v) - (r_h, div v) =
+  // (-Laplace(u) + grad p, v), (div w_h, q) = 0, i.e. viscosity 1. (The
+  // projection with the true small viscosity would be badly scaled for the
+  // direct solver and, for non-divergence-free pairs, polluted by grad p/nu.)
   auto stokes_projection = [&](double time)
   {
     TDatabase::TimeDB->CURRENTTIME = time;
-    NavierStokes<2> stokes(domain, db_time, stokes_example);
+    double re_keep = TDatabase::ParamDB->RE_NR;
+    TDatabase::ParamDB->P1 = 1.; // standard Stokes projection: -Laplace(u) + grad p
+    TDatabase::ParamDB->RE_NR = 1.;
+    Example_NSE2D stokes_example_nu1(example.get_exact(),
+      std::vector<BoundCondFunct2D*>(example.get_bc(), example.get_bc() + 3),
+      std::vector<BoundValueFunct2D*>(example.get_bd(), example.get_bd() + 3),
+      bdf2imex_stokes_projection_coeffs(), 1.);
+    ParameterDatabase db_s(db_time);
+    db_s["reynolds_number"].set_range(1.e-10, 1.e10);
+    db_s["reynolds_number"] = 1.;
+    NavierStokes<2> stokes(domain, db_s, stokes_example_nu1);
     stokes.assemble_linear_terms();
     stokes.solve();
     ns.get_solution() = stokes.get_solution();
+    TDatabase::ParamDB->RE_NR = re_keep;
+    // the scheme does not define a pressure for the starting values; for the
+    // error table either the pressure of the (viscosity 1) Stokes projection
+    // or the interpolant of the exact pressure is used
+    if(start_pressure == "interpolation")
+    {
+      ns.get_pressure().Interpolate(example.get_exact(2));
+      if(S.pressure_projection_enabled())
+        ns.get_pressure().project_into_L20();
+    }
   };
   // --- assemble the IMEX system for the transport field b ------------------
   // S = c_M M + A(b) (+ CIP(b)), rhs = f + M w, Dirichlet data in rhs
@@ -233,11 +311,56 @@ int main(int argc, char* argv[])
     // A(b) (Oseen with the convection field b, grad-div if requested) and f
     ParameterDatabase db_a(db_time);
     db_a["problem_type"] = 5;
+    // Stokes part, grad-div and f
     assemble_blocks(ns, A, &L, db_a, LocalAssembling_type::NavierStokesAll, b_vec);
+    // velocity-velocity block with the convective term ((b.grad)u, v): the
+    // 'All' type of ParMooN's Galerkin Navier-Stokes assembling contains only
+    // the linear terms, the 'NL' type the complete velocity block
+    assemble_blocks(ns, A, nullptr, db_a, LocalAssembling_type::NavierStokesNL,
+                    b_vec, false);
     if(use_cip)
     {
       TFEVectFunct2D b_fct(ns.get_velocity_space(), "b", b_vec.get_entries(), 2);
       assemble_CIP_NSE2D(A, b_fct, cip);
+    }
+    if(Output::getVerbosity() >= 3 && !use_cip)
+    {
+      // consistency check against the NavierStokes class (Galerkin, no CIP)
+      ParameterDatabase db_chk(db_time);
+      db_chk["problem_type"] = 5;
+      NavierStokes<2> chk(domain, db_chk, example);
+      chk.get_solution() = b_vec;
+      chk.assemble_linear_terms();
+      chk.assemble_nonlinear_term();
+      BlockVector x(b_vec), y1(b_vec), y2(b_vec);
+      for(size_t i = 0; i < x.length(); ++i)
+        x.get_entries()[i] = std::sin(1. + 0.37*i);
+      y1.reset(); y2.reset();
+      A.apply(x, y1);
+      chk.get_matrix().apply(x, y2);
+      y1.add_scaled(y2, -1.);
+      Output::print("DEBUG |A x - A_ns x| = ", y1.norm(), " (|A_ns x| = ", y2.norm(), ")");
+    }
+    if(Output::getVerbosity() >= 3)
+    {
+      // consistency check: B1T == (B1)^T ?
+      bool tr;
+      auto B1T = A.get_block(0, 2, tr);
+      auto B1 = A.get_block(2, 0, tr);
+      double dmax = 0., bmax = 0.;
+      const int* rp = B1T->get_row_ptr();
+      const int* cols = B1T->get_vector_columns();
+      const double* ent = B1T->GetEntries();
+      for(size_t i = 0; i < n_u; ++i)
+        for(int k = rp[i]; k < rp[i+1]; ++k)
+        {
+          double a = ent[k];
+          double b = 0.;
+          try { b = B1->get(cols[k], i); } catch(...) { b = 0.; }
+          dmax = std::max(dmax, std::abs(a - b));
+          bmax = std::max(bmax, std::abs(a));
+        }
+      Output::print("DEBUG max|B1T - B1^T| = ", dmax, ", max|B1T| = ", bmax);
     }
     S = A;
     S.add_blockfe_matrix(M, c_M);
@@ -270,6 +393,33 @@ int main(int argc, char* argv[])
           << max_norm(b_fct) << " " << F << "\n";
     Output::print("step ", step, ", t = ", t, ": L2(u) = ", l2u, ", H1(u) = ",
                   h1u, ", L2(p) = ", l2p, ", div = ", divu);
+    if(Output::getVerbosity() >= 2)
+    {
+      // independent pressure error: degree-19 quadrature, point evaluation
+      const TQuadFormula* qf = QuadratureFormulaDatabase::qf_from_degree(19, BFRefElements::BFUnitTriangle);
+      int nq; const double *wq, *xq, *yq;
+      qf->GetFormulaData(nq, wq, xq, yq);
+      const TCollection* coll = ns.get_pressure_space()->GetCollection();
+      double e2 = 0., mean = 0., pe[4], val[3];
+      for(int i = 0; i < coll->GetN_Cells(); ++i)
+      {
+        const TBaseCell* c = coll->GetCell(i);
+        double x0 = c->GetVertex(0)->GetX(), y0 = c->GetVertex(0)->GetY();
+        double x1 = c->GetVertex(1)->GetX(), y1 = c->GetVertex(1)->GetY();
+        double x2 = c->GetVertex(2)->GetX(), y2 = c->GetVertex(2)->GetY();
+        double det = std::abs((x1-x0)*(y2-y0) - (x2-x0)*(y1-y0));
+        for(int q = 0; q < nq; ++q)
+        {
+          double x = x0 + xq[q]*(x1-x0) + yq[q]*(x2-x0);
+          double y = y0 + xq[q]*(y1-y0) + yq[q]*(y2-y0);
+          ns.get_pressure().FindValueLocal(c, i, x, y, val);
+          example.get_exact(2)(x, y, pe);
+          e2 += wq[q]*det*(val[0]-pe[0])*(val[0]-pe[0]);
+          mean += wq[q]*det*val[0];
+        }
+      }
+      Output::print("   independent pressure check: L2 error ", std::sqrt(e2), ", mean of p_h ", mean);
+    }
   };
 
   if(start == "stokes_projection")
@@ -333,6 +483,16 @@ int main(int argc, char* argv[])
     assemble_system(3./(2.*dt), t);
     ns.get_solution().copy_nonactive(rhs);
     solver.solve(S, rhs, ns.get_solution());
+    if(Output::getVerbosity() >= 2)
+    {
+      BlockVector res(rhs);
+      S.apply_scaled_add(ns.get_solution(), res, -1.);
+      for(int c = 0; c < 2; ++c)
+        for(size_t i = ns.get_velocity_space()->get_n_active(); i < n_u; ++i)
+          res.get_entries()[c*n_u + i] = 0.;
+      Output::print("   linear solver residual: ", res.norm(), " (|rhs| = ", rhs.norm(),
+                    ", |sol| = ", ns.get_solution().norm(), ")");
+    }
     if(S.pressure_projection_enabled())
       ns.get_pressure().project_into_L20();
     // energy F^m = ||u^m||^2 + ||2u^m - u^{m-1}||^2
