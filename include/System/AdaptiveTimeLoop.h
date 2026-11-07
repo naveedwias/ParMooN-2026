@@ -47,8 +47,10 @@ class AdaptiveTimeSystem : public TrapezoidalAB2_System
     /// @brief error in the problem's norm against the exact solution, or a
     /// negative value if unknown
     virtual double exact_error() const = 0;
-    /// @brief optional output (vtk etc.) at the current time
-    virtual void output() {}
+    /// @brief output (vtk etc.) at the current time with a running index
+    /// (the index is kept by the loop, since the system is rebuilt on every
+    /// mesh change)
+    virtual void output(int index) = 0;
 };
 
 class AdaptiveTimeLoop
@@ -82,7 +84,7 @@ class AdaptiveTimeLoop
     std::ostringstream table;
     bool adaptive, coarsening, write_ps;
     double tol1, tol2, output_every, next_output;
-    int initial_level;
+    int initial_level, output_index;
     size_t max_level;
 };
 

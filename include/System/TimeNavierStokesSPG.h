@@ -47,7 +47,9 @@ class TimeNavierStokesSPG : public AdaptiveTimeSystem
     void apply_state(const std::vector<SolutionTransfer::NodeValueMap>& maps) override;
     void copy_time_state(const AdaptiveTimeSystem& old) override;
     double exact_error() const override { return last_error; }
-    void output() override { ns.output(); }
+    /// @brief vtk output through NavierStokes (velocity, pressure) plus the
+    /// discrete time derivative
+    void output(int index) override;
 
     NavierStokes<2>& get_navier_stokes() { return ns; }
     const BlockVector& get_time_derivative() const { return ud; }
@@ -58,6 +60,7 @@ class TimeNavierStokesSPG : public AdaptiveTimeSystem
     NavierStokes<2> ns;
     BlockFEMatrix M, M_galerkin, S;
     BlockVector ud, ud_old, u_saved, ud_saved, u_pred, rhs;
+    std::unique_ptr<TFEVectFunct2D> ud_fct;
     Solver<BlockFEMatrix, BlockVector> solver;
     ParameterDatabase db;
     double t, last_error, nonlin_tol;

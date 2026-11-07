@@ -24,10 +24,12 @@ TimeConvectionDiffusionTR::TimeConvectionDiffusionTR(
    M_galerkin(BlockFEMatrix::CD2D(space)), S(BlockFEMatrix::CD2D(space)),
    u(M, false), d(M, false), d_old(M, false), u_saved(M, false),
    d_saved(M, false), u_pred(M, false), rhs(M, true), work(M, true),
-   solver(param_db), t(0.)
+   solver(param_db), writer(param_db), t(0.)
 {
   u_fct.reset(new TFEFunction2D(space, "u", u.get_entries()));
   d_fct.reset(new TFEFunction2D(space, "dt_u", d.get_entries()));
+  writer.add_fe_function(u_fct.get());
+  writer.add_fe_function(d_fct.get());
   // Galerkin mass matrix for the L2 norm of the error estimate
   {
     ParameterDatabase db_g(db);
@@ -202,6 +204,12 @@ void TimeConvectionDiffusionTR::copy_time_state(const AdaptiveTimeSystem& old)
   const auto* o = dynamic_cast<const TimeConvectionDiffusionTR*>(&old);
   if(o != nullptr)
     t = o->t;
+}
+
+void TimeConvectionDiffusionTR::output(int index)
+{
+  TDatabase::TimeDB->CURRENTTIME = t;
+  writer.write(index);
 }
 
 double TimeConvectionDiffusionTR::exact_error() const

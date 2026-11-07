@@ -7,7 +7,7 @@ conforming_closure: true
 problem_type: 2
 example: 15
 verbosity: 1
-output_write_vtk: false
+output_write_vtk: true
 output_compute_errors: true
 output_basename: ex2
 space_discretization_type: supg
@@ -33,3 +33,4 @@ trab2_dt_max: 0.05
 adaptive_output_time: 0.5
 tcd_estimator_mu0: 0.0
 tcd_write_table: ex4new_table.txt
+output_directory: vtk

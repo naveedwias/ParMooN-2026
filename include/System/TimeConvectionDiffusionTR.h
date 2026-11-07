@@ -21,6 +21,7 @@
 #include "FEFunction2D.h"
 #include "FESpace2D.h"
 #include "Solver.h"
+#include "DataWriter.h"
 #include <memory>
 
 class TimeConvectionDiffusionTR : public AdaptiveTimeSystem
@@ -48,6 +49,8 @@ class TimeConvectionDiffusionTR : public AdaptiveTimeSystem
     void apply_state(const std::vector<SolutionTransfer::NodeValueMap>& maps) override;
     void copy_time_state(const AdaptiveTimeSystem& old) override;
     double exact_error() const override;
+    /// @brief vtk output of the solution and the discrete time derivative
+    void output(int index) override;
 
     const TFEFunction2D& get_function() const { return *u_fct; }
     const TFEFunction2D& get_time_derivative_function() const { return *d_fct; }
@@ -64,6 +67,7 @@ class TimeConvectionDiffusionTR : public AdaptiveTimeSystem
     BlockVector u, d, d_old, u_saved, d_saved, u_pred, rhs, work;
     std::unique_ptr<TFEFunction2D> u_fct, d_fct;
     Solver<BlockFEMatrix, BlockVector> solver;
+    DataWriter<2> writer;
     double t;
 
     void assemble(double time);

@@ -7,7 +7,7 @@ conforming_closure: true
 problem_type: 5
 example: 23
 verbosity: 2
-output_write_vtk: false
+output_write_vtk: true
 output_compute_errors: true
 output_basename: ex1
 space_discretization_type: supg_pspg_graddiv
@@ -34,3 +34,4 @@ trab2_dt_max: 0.02
 adaptive_mesh: false
 adaptive_output_time: 1.0
 tnse_write_table: ex1new_table.txt
+output_directory: vtk

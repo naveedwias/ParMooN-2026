@@ -31,6 +31,8 @@ TimeNavierStokesSPG::TimeNavierStokesSPG(const TDomain& domain,
   assemble_mass(M_galerkin, db_g);
   nonlin_tol = db["nonlinloop_epsilon"];
   maxit = db["nonlinloop_maxit"];
+  ud_fct.reset(new TFEVectFunct2D(ns.get_velocity_space(), "dt_u", ud.get_entries(), 2));
+  ns.add_to_output(ud_fct.get());
   // initial condition and (Ud^0, P^0)
   t = db["time_start"];
   TDatabase::TimeDB->CURRENTTIME = t;
@@ -282,6 +284,12 @@ void TimeNavierStokesSPG::apply_state(const std::vector<SolutionTransfer::NodeVa
   u_saved = ns.get_solution();
   ud_saved = ud;
   u_pred = ns.get_solution();
+}
+
+void TimeNavierStokesSPG::output(int index)
+{
+  TDatabase::TimeDB->CURRENTTIME = t;
+  ns.output(index);
 }
 
 void TimeNavierStokesSPG::copy_time_state(const AdaptiveTimeSystem& old)

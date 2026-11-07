@@ -17,7 +17,8 @@ ParameterDatabase AdaptiveTimeLoop::default_database()
   db.add("adaptive_max_cell_level", 30u, "maximal refinement level of a cell",
          1u, 100u);
   db.add("adaptive_output_time", 0.1, "interval for mesh output (PostScript, "
-         "needs output_write_ps) and system output", 0., 1.e10);
+         "needs output_write_ps) and system output (vtk, needs output_write_vtk; "
+         "files <output_directory>/<output_basename>.<index>.vtk)", 0., 1.e10);
   db.merge(TrapezoidalAB2::default_database(), true);
   return db;
 }
@@ -41,6 +42,8 @@ AdaptiveTimeLoop::AdaptiveTimeLoop(TDomain& dom, const ParameterDatabase& param_
   system = factory();
   integrator.set_time(system ? integrator.get_time() : 0.);
   next_output = integrator.get_time() + output_every;
+  output_index = 0;
+  system->output(output_index++); // initial condition
   table << "# time  dt  cells  dofs  eta  error  effectivity  n_marked_refine"
            "  n_marked_coarsen\n";
 }
@@ -92,7 +95,7 @@ void AdaptiveTimeLoop::run()
         name << "mesh_t" << std::fixed << std::setprecision(3) << t << ".ps";
         domain.PS(name.str().c_str(), It_Finest, 0);
       }
-      system->output();
+      system->output(output_index++);
     }
 
     // --- mesh adaptation -------------------------------------------------------
