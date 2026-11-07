@@ -135,10 +135,17 @@ namespace bdf2imex_lake
 #include "NSE_2D/BDF2IMEX_lake.h"
 }
 
+namespace bdf2imex_shearlayer
+{
+#include "NSE_2D/BDF2IMEX_shearlayer.h"
+}
+
 CoeffFct2D bdf2imex_stokes_projection_coeffs(int example)
 {
   if(example == 26)
     return bdf2imex_lake::StokesProjectionCoeffs;
+  if(example == 27)
+    return bdf2imex_shearlayer::StokesProjectionCoeffs;
   return bdf2imex_smooth::StokesProjectionCoeffs;
 }
 
@@ -797,6 +804,20 @@ case 7:
     bdf2imex_lake::ExampleFile();
     break;
 
+  case 27: // BDF2-IMEX / CIP, doubly periodic shear layer
+    exact_solution.push_back( bdf2imex_shearlayer::ExactU1 );
+    exact_solution.push_back( bdf2imex_shearlayer::ExactU2 );
+    exact_solution.push_back( bdf2imex_shearlayer::ExactP );
+    boundary_conditions.push_back( bdf2imex_shearlayer::BoundCondition );
+    boundary_conditions.push_back( bdf2imex_shearlayer::BoundCondition );
+    boundary_conditions.push_back( BoundConditionNoBoundCondition );
+    boundary_data.push_back( bdf2imex_shearlayer::U1BoundValue );
+    boundary_data.push_back( bdf2imex_shearlayer::U2BoundValue );
+    boundary_data.push_back( BoundaryValueHomogenous );
+    problem_coefficients = bdf2imex_shearlayer::LinCoeffs;
+    bdf2imex_shearlayer::ExampleFile();
+    break;
+
 
   default:
     ErrThrow("Unknown Navier-Stokes example",  example_code, " !");
@@ -850,6 +871,7 @@ double Example_NSE2D::get_nu() const
   case 24:
   case 25:
   case 26:
+  case 27:
     {
       nu = this->example_database["reynolds_number"];
       nu = 1./nu;

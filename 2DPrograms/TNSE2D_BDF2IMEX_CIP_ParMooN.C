@@ -58,6 +58,75 @@
 #include <sstream>
 #include <vector>
 
+
+bool point_in_triangle(const TBaseCell* c, double x, double y, double tol = 1e-9)
+{
+  double x0 = c->GetVertex(0)->GetX(), y0 = c->GetVertex(0)->GetY();
+  double x1 = c->GetVertex(1)->GetX(), y1 = c->GetVertex(1)->GetY();
+  double x2 = c->GetVertex(2)->GetX(), y2 = c->GetVertex(2)->GetY();
+  double det = (x1-x0)*(y2-y0) - (x2-x0)*(y1-y0);
+  double l1 = ((x-x0)*(y2-y0) - (x2-x0)*(y-y0))/det;
+  double l2 = ((x1-x0)*(y-y0) - (x-x0)*(y1-y0))/det;
+  return l1 >= -tol && l2 >= -tol && l1 + l2 <= 1. + tol;
+}
+
+// sample velocity, vorticity (d_1 u_2 - d_2 u_1) and divergence of the
+// discrete velocity on a uniform N x N grid (cell centres of the grid) of the
+// unit square and write them to a text file: x y u1 u2 omega div
+void sample_on_grid(const TFEVectFunct2D& u, int N, const std::string& file,
+                    double& omega_min, double& omega_max, double& tv_omega)
+{
+  auto space = u.GetFESpace2D();
+  const TCollection* coll = space->GetCollection();
+  int n_cells = coll->GetN_Cells();
+  auto u1 = u.GetComponent(0);
+  auto u2 = u.GetComponent(1);
+  std::vector<double> om(N*N, 0.), U1(N*N), U2(N*N), DV(N*N);
+  std::vector<int> found(N*N, 0);
+  double v1[3], v2[3];
+  for(int c = 0; c < n_cells; ++c)
+  {
+    const TBaseCell* cell = coll->GetCell(c);
+    double xmin = 1e9, xmax = -1e9, ymin = 1e9, ymax = -1e9;
+    for(int k = 0; k < 3; ++k)
+    {
+      xmin = std::min(xmin, cell->GetVertex(k)->GetX()); xmax = std::max(xmax, cell->GetVertex(k)->GetX());
+      ymin = std::min(ymin, cell->GetVertex(k)->GetY()); ymax = std::max(ymax, cell->GetVertex(k)->GetY());
+    }
+    int i0 = std::max(0, (int) std::floor(xmin*N - 0.5)), i1 = std::min(N-1, (int) std::ceil(xmax*N - 0.5));
+    int j0 = std::max(0, (int) std::floor(ymin*N - 0.5)), j1 = std::min(N-1, (int) std::ceil(ymax*N - 0.5));
+    for(int j = j0; j <= j1; ++j)
+      for(int i = i0; i <= i1; ++i)
+      {
+        if(found[j*N+i]) continue;
+        double x = (i + 0.5)/N, y = (j + 0.5)/N;
+        if(!point_in_triangle(cell, x, y)) continue;
+        u1->FindGradientLocal(cell, c, x, y, v1);
+        u2->FindGradientLocal(cell, c, x, y, v2);
+        U1[j*N+i] = v1[0]; U2[j*N+i] = v2[0];
+        om[j*N+i] = v2[1] - v1[2];
+        DV[j*N+i] = v1[1] + v2[2];
+        found[j*N+i] = 1;
+      }
+  }
+  omega_min = 1e300; omega_max = -1e300; tv_omega = 0.;
+  for(int j = 0; j < N; ++j)
+    for(int i = 0; i < N; ++i)
+    {
+      omega_min = std::min(omega_min, om[j*N+i]);
+      omega_max = std::max(omega_max, om[j*N+i]);
+      // discrete total variation (periodic differences)
+      tv_omega += std::abs(om[j*N+(i+1)%N] - om[j*N+i]) + std::abs(om[((j+1)%N)*N+i] - om[j*N+i]);
+    }
+  tv_omega /= N; // sum |grad omega| h^2 with differences / h
+  std::ofstream out(file);
+  out << "# x y u1 u2 omega div   (N = " << N << ")\n";
+  for(int j = 0; j < N; ++j)
+    for(int i = 0; i < N; ++i)
+      out << (i+0.5)/N << " " << (j+0.5)/N << " " << U1[j*N+i] << " " << U2[j*N+i]
+          << " " << om[j*N+i] << " " << DV[j*N+i] << "\n";
+}
+
 // block matrix with the layout of NSTYPE 4 (A11 A12 B1T / A21 A22 B2T /
 // B1 B2 0) whose velocity blocks have the extended sparsity pattern needed
 // for the edge couplings of the CIP terms
@@ -201,6 +270,12 @@ int main(int argc, char* argv[])
   defaults.add("bdf2_start", "stokes_projection", "starting values u^0, u^1",
                {"stokes_projection", "euler"});
   defaults.add("bdf2_write_table", "", "file name for the per-step table");
+  defaults.add("bdf2_periodic", false, "periodic boundary conditions (the "
+               "example's boundary condition must return PERIODIC)");
+  defaults.add("bdf2_sample_grid", 0, "if > 0: sample velocity, vorticity and "
+               "divergence on an N x N grid at the final time (file "
+               "<output_basename>_sample.txt) and print vorticity range and "
+               "total variation", 0, 4096);
   defaults.add("bdf2_start_pressure", "interpolation", "pressure of the starting "
                "values (only for the error table): interpolant of the exact "
                "pressure, or the pressure of the Stokes projection",
@@ -224,7 +299,12 @@ int main(int argc, char* argv[])
 
   TDomain domain(parmoon_db);
   check_parameters_consistency_NSE(parmoon_db);
-  domain.refine_and_get_hierarchy_of_collections(parmoon_db);
+  // periodic boundaries (example 27): the boundary condition function is
+  // passed, so that boundary joints marked PERIODIC become periodic joints
+  Example_NSE2D example_for_domain(parmoon_db);
+  bool periodic = parmoon_db["bdf2_periodic"];
+  domain.refine_and_get_hierarchy_of_collections(parmoon_db,
+    periodic ? example_for_domain.get_bc(0) : nullptr);
 
   double t_start = parmoon_db["time_start"], t_end = parmoon_db["time_end"];
   double dt = parmoon_db["time_step_length"];
@@ -507,6 +587,15 @@ int main(int argc, char* argv[])
   }
   timer.restart_and_print("time loop");
 
+  int n_sample = parmoon_db["bdf2_sample_grid"];
+  if(n_sample > 0)
+  {
+    double om_min, om_max, tv;
+    std::string base = parmoon_db["output_basename"];
+    sample_on_grid(ns.get_velocity(), n_sample, base + "_sample.txt", om_min, om_max, tv);
+    Output::print("SAMPLE: vorticity range [", om_min, ", ", om_max, "], discrete TV ",
+                  tv, ", written to ", base, "_sample.txt");
+  }
   auto err = ns.get_errors();
   Output::print("\nRESULTS: E_0 = ", std::scientific, std::setprecision(4), E0,
                 ", E_p = ", std::sqrt(Ep2), ", D = ", D,

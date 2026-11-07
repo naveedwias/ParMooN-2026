@@ -1,0 +1,37 @@
+[ BDF2-IMEX with CIP, Scott-Vogelius, smooth example ]
+outfile: shearlayer.out
+boundary_file: Default_UnitSquare
+geo_file: TwoTriangles
+refinement_n_initial_steps: 5
+refinement_final_step_barycentric: true
+problem_type: 3
+example: 27
+verbosity: 1
+output_write_vtk: true
+output_compute_errors: false
+output_directory: vtk_shear
+output_basename: shearlayer
+space_discretization_type: galerkin
+
+solver_type: direct
+direct_solver_type: umfpack
+VELOCITY_SPACE: 12
+PRESSURE_SPACE: -4711
+reynolds_number: 1.0e4
+NSTYPE: 4
+LAPLACETYPE: 0
+NSE_NONLINEAR_FORM: 0
+time_start: 0.0
+time_end: 1.0
+time_step_length: 0.0125
+cip_delta1: 1.0e-2
+cip_delta2: 1.0e-4
+cip_delta3: 1.0e-6
+cip_u_min: 0.01
+pressure_amplitude: 1.0
+bdf2_start: euler
+bdf2_periodic: true
+periodic_translations: (1.,0.,0.,1.)
+graddiv_stab: 0.0
+bdf2_write_table: shearlayer_table.txt
+bdf2_sample_grid: 256

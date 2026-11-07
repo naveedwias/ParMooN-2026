@@ -208,6 +208,28 @@ double assemble_CIP_NSE2D(BlockFEMatrix& A, const TFEVectFunct2D& b,
       const TBaseCell* neigh = joint->GetNeighbour(cell);
       if(neigh == nullptr)
         continue; // boundary edge
+      // periodic joints: the neighbour lies at the opposite side of the
+      // domain, its points are shifted by the translation between the two
+      // copies of the edge
+      double shift_x = 0., shift_y = 0.;
+      if(joint->GetType() == PeriodicJoint)
+      {
+        const int* ev_n;
+        neigh->GetRefDesc()->GetShapeDesc()->GetEdgeVertex(ev_n);
+        for(int en = 0; en < neigh->GetN_Edges(); ++en)
+        {
+          if(neigh->GetJoint(en) == joint)
+          {
+            const TVertex* w0 = neigh->GetVertex(ev_n[2*en]);
+            const TVertex* w1 = neigh->GetVertex(ev_n[2*en+1]);
+            const TVertex* v0 = cell->GetVertex(edge_vertex[2*e]);
+            const TVertex* v1 = cell->GetVertex(edge_vertex[2*e+1]);
+            shift_x = 0.5*(w0->GetX() + w1->GetX()) - 0.5*(v0->GetX() + v1->GetX());
+            shift_y = 0.5*(w0->GetY() + w1->GetY()) - 0.5*(v0->GetY() + v1->GetY());
+            break;
+          }
+        }
+      }
       auto it = cell_index.find(neigh);
       if(it == cell_index.end() || it->second < i)
         continue; // each interior edge once (from the cell with smaller index)
@@ -253,7 +275,7 @@ double assemble_CIP_NSE2D(BlockFEMatrix& A, const TFEVectFunct2D& b,
         double x = x0 + s*(x1-x0), y = y0 + s*(y1-y0);
         double w = 0.5*hF*w_q[q];
         evaluate_basis(cell, fep, x, y, evp);
-        evaluate_basis(neigh, fem, x, y, evm);
+        evaluate_basis(neigh, fem, x + shift_x, y + shift_y, evm);
         evaluate_field(evp, DOFp, b_values, length, fp);
         evaluate_field(evm, DOFm, b_values, length, fm);
         for(size_t a = 0; a < nd; ++a)
