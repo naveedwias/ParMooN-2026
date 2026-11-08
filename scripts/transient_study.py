@@ -2,9 +2,13 @@
 """
 Run several simulations with the time-dependent adaptive programs
 
-  parMooN_tcd2d_supg_adaptive_SEQUENTIAL   (de Frutos, Garcia-Archilla, John, Novo 2014)
-  parMooN_tnse2d_spg_adaptive_SEQUENTIAL   (adaptive SUPG/PSPG/grad-div for time-dependent NSE)
-  parMooN_tnse2d_bdf2imex_cip_SEQUENTIAL   (BDF2-IMEX with CIP for Scott-Vogelius / Taylor-Hood)
+  parMooN_tcd2d_adaptive_tr_SEQUENTIAL     (--program tcd:  de Frutos, Garcia-Archilla, John, Novo 2014)
+  parMooN_tnse2d_adaptive_spg_SEQUENTIAL   (--program tnse: adaptive SUPG/PSPG/grad-div, time-dependent NSE)
+  parMooN_tnse2d_bdf2imex_cip_SEQUENTIAL   (--program bdf2: BDF2-IMEX with CIP, Scott-Vogelius / Taylor-Hood)
+  (--program tcd_old / tnse_old: the monolithic drivers with the tcd_*/tnse_* parameters)
+
+The steady Oseen / Navier-Stokes studies (parMooN_oseen2d_spg_adaptive) are run and
+plotted by spg_study.py and spg_plot.py.
 
 from a base input file, varying one or more parameters, store the outputs and
 plot the per-time tables (effectivity index, estimator and error, number of
@@ -17,13 +21,18 @@ given as key=value1,value2,... Each combination of values becomes one run in
 base file (or are valid parameters of the program) should be given.
 
 Examples
-  # Example 2 of FGJN14 on three meshes and two diffusion coefficients
-  python3 transient_study.py --program tcd --base ../ParMooN-2026/data/input_files/tcd2d_fgjn14_ex2.dat \\
+  # Example 2 of FGJN14 (effectivity in time) on three meshes and two diffusion coefficients
+  python3 transient_study.py --program tcd --base ../ParMooN-2026/data/input_files/tcd2d_adaptive_tr_ex2.dat \\
       --name fgjn_ex2 --vary refinement_n_initial_steps=5,6,7 diffusion_coefficient=1e-3,1e-6
 
-  # transient Navier-Stokes Example 1 for several pairs and viscosities
-  python3 transient_study.py --program tnse --base ../ParMooN-2026/data/input_files/tnse2d_spg_ex1.dat \\
-      --name tnse_ex1 --vary VELOCITY_SPACE/PRESSURE_SPACE=2/1,2/2,1/1 reynolds_number=100,1000
+  # FGJN14 Examples 3, 4, 5 (adaptive meshes): one run each, meshes at the output times
+  python3 transient_study.py --program tcd --base ../ParMooN-2026/data/input_files/tcd2d_adaptive_tr_ex4.dat --name fgjn_ex4
+
+  # transient Navier-Stokes Example 1: spatial convergence and effectivity for several pairs
+  python3 transient_study.py --program tnse --base ../ParMooN-2026/data/input_files/tnse2d_adaptive_spg_ex1.dat \\
+      --name tnse_ex1_P2P1 --vary refinement_n_initial_steps=3,4,5,6
+  python3 transient_study.py --program tnse --base ../ParMooN-2026/data/input_files/tnse2d_adaptive_spg_ex1.dat \\
+      --name tnse_ex1_pairs --set refinement_n_initial_steps=5 --vary VELOCITY_SPACE/PRESSURE_SPACE=2/1,2/2,1/1,3/2
 
   # BDF2-IMEX, Table 1: SV-CIP on n = 4, 8, 16 with dt = h^(3/2)
   python3 transient_study.py --program bdf2 --base ../ParMooN-2026/data/input_files/tnse2d_bdf2imex_cip.dat \
@@ -49,9 +58,16 @@ import time
 import numpy as np
 
 PROGRAMS = {
-    "tcd": dict(exe="parMooN_tcd2d_supg_adaptive_SEQUENTIAL", table_key="tcd_write_table"),
-    "tnse": dict(exe="parMooN_tnse2d_spg_adaptive_SEQUENTIAL", table_key="tnse_write_table"),
+    # adaptive SUPG for evolutionary convection-diffusion (de Frutos et al. 2014),
+    # class-based driver (TimeConvectionDiffusionTR + AdaptiveTimeLoop)
+    "tcd": dict(exe="parMooN_tcd2d_adaptive_tr_SEQUENTIAL", table_key="tcd_write_table"),
+    # adaptive SUPG/PSPG/grad-div for time-dependent Navier-Stokes, class-based driver
+    "tnse": dict(exe="parMooN_tnse2d_adaptive_spg_SEQUENTIAL", table_key="tnse_write_table"),
+    # BDF2-IMEX with CIP (Scott-Vogelius) / Taylor-Hood
     "bdf2": dict(exe="parMooN_tnse2d_bdf2imex_cip_SEQUENTIAL", table_key="bdf2_write_table"),
+    # the monolithic drivers kept for reference (parameters tcd_*/tnse_*)
+    "tcd_old": dict(exe="parMooN_tcd2d_supg_adaptive_SEQUENTIAL", table_key="tcd_write_table"),
+    "tnse_old": dict(exe="parMooN_tnse2d_spg_adaptive_SEQUENTIAL", table_key="tnse_write_table"),
 }
 
 
@@ -176,7 +192,7 @@ def plot_tables(args, runs):
         for ax, (key, ylabel, log) in zip(axes, panels):
             if key == "error":
                 eta = column(tab, "eta")
-                err = column(tab, "error_supg", "error_spg")
+                err = column(tab, "error", "error_supg", "error_spg")
                 ax.plot(t, eta, "-", color=c, label=label)
                 if err is not None and np.all(err > 0):
                     ax.plot(t, err, "--", color=c)
@@ -257,14 +273,17 @@ def spatial_summary(args, runs):
     series over refinement_n_initial_steps (tcd and tnse programs)."""
     rows = []
     for label, tab in runs:
-        err = column(tab, "error_supg", "error_spg")
+        err = column(tab, "error", "error_supg", "error_spg")
         eta = column(tab, "eta")
         eff = column(tab, "effectivity")
         dofs = column(tab, "dofs")
         cells = column(tab, "cells")
         if err is None or eta is None or dofs is None:
             return
-        ok = err > 0
+        tt = column(tab, "time")
+        # the first row is the initial state (interpolated data, error ~ 0):
+        # exclude it from the effectivity statistics
+        ok = (err > 0) & (tt > tt[0]) if tt is not None else err > 0
         rows.append(dict(label=label, dofs=dofs[-1], cells=cells[-1] if cells is not None else 0,
                          err=err[ok].max() if ok.any() else 0., eta=eta.max(),
                          eff_min=eff[ok].min() if ok.any() else 0.,
