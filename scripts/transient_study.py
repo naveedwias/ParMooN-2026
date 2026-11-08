@@ -281,9 +281,13 @@ def spatial_summary(args, runs):
         if err is None or eta is None or dofs is None:
             return
         tt = column(tab, "time")
-        # the first row is the initial state (interpolated data, error ~ 0):
-        # exclude it from the effectivity statistics
-        ok = (err > 0) & (tt > tt[0]) if tt is not None else err > 0
+        # the initial state and the start-up phase of the time integrator
+        # (interpolated data, error ~ 0, meaningless effectivity): exclude
+        # the first 2% of the time interval from the effectivity statistics
+        if tt is not None:
+            ok = (err > 0) & (tt > tt[0] + 0.02*(tt[-1] - tt[0]))
+        else:
+            ok = err > 0
         rows.append(dict(label=label, dofs=dofs[-1], cells=cells[-1] if cells is not None else 0,
                          err=err[ok].max() if ok.any() else 0., eta=eta.max(),
                          eff_min=eff[ok].min() if ok.any() else 0.,
