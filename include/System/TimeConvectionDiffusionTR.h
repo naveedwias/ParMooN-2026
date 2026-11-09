@@ -50,6 +50,8 @@ class TimeConvectionDiffusionTR : public AdaptiveTimeSystem
     void apply_state(const std::vector<SolutionTransfer::Snapshot>& maps) override;
     void copy_time_state(const AdaptiveTimeSystem& old) override;
     double exact_error() const override;
+    /// @brief L2(u), H1(u) (seminorm) at the current time
+    std::vector<std::pair<std::string, double>> error_columns() override;
     /// @brief vtk output of the solution and the discrete time derivative
     void output(int index) override;
 

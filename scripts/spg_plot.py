@@ -21,6 +21,7 @@ Examples:
   python3 spg_plot.py --outdir spg_results --study ex41
   python3 spg_plot.py --outdir spg_results --study ex41 ex42 --format png --max-dofs 1e6
 """
+import math
 import argparse
 import glob
 import os
@@ -36,6 +37,14 @@ TITLES = {"ex41": "Example 4.1 (Oseen, smooth)", "ex42": "Example 4.2 (Oseen, la
           "ex52": "Example 5.2 (Navier-Stokes, layers)"}
 UNIFORM = {"ex41": True, "ex42": False, "ex51": True, "ex52": False}
 
+
+
+def fmt_rate7(x, first):
+    """rate in a 7 character field, '---' for the first level (no previous
+    level) or if not defined"""
+    if first or x is None or not math.isfinite(x):
+        return f"{'---':>7s}"
+    return f"{x:7.2f}"
 
 def read_table(path):
     rows = []
@@ -211,7 +220,7 @@ def main():
                     for r in rows:
                         f.write(f"{int(r['level']):5d} {int(r['cells']):6d} {int(r['dofs']):7d} "
                                 f"{r['error_spg']:11.4e} {r['eta']:10.4e} {r['effectivity']:7.3f} "
-                                f"{r['rate_err']:7.2f} {r['rate_eta']:7.2f}\n")
+                                f"{fmt_rate7(r['rate_err'], r is rows[0])} {fmt_rate7(r['rate_eta'], r is rows[0])}\n")
         print(f"wrote {out}")
 
 

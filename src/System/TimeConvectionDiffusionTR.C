@@ -255,4 +255,21 @@ double TimeConvectionDiffusionTR::exact_error() const
                    [](const TBaseCell*, int){return false;}, db);
   return err[2]; // SUPG norm
 }
+
+std::vector<std::pair<std::string, double>> TimeConvectionDiffusionTR::error_columns()
+{
+  if(example.get_exact().empty() || example.get_exact(0) == nullptr)
+    return {};
+  TDatabase::TimeDB->CURRENTTIME = t;
+  TAuxParam2D aux;
+  MultiIndex2D all_derivatives[3] = {MultiIndex2D::D00, MultiIndex2D::D10,
+                                     MultiIndex2D::D01};
+  const TFESpace2D* sp = space.get();
+  std::array<double, 5> err;
+  u_fct->GetErrors(example.get_exact(0), 3, all_derivatives, 5,
+                   conv_diff_l2_h1_linf_error<2>, example.get_coeffs(), &aux, 1,
+                   &sp, err.data(), false,
+                   [](const TBaseCell*, int){return false;}, db);
+  return {{"L2(u)", err[0]}, {"H1(u)", err[1]}};
+}
 #endif // __2D__

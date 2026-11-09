@@ -31,6 +31,15 @@ Examples
   # transient Navier-Stokes Example 1: spatial convergence and effectivity for several pairs
   python3 transient_study.py --program tnse --base ../ParMooN-2026/data/input_files/tnse2d_adaptive_spg_ex1.dat \\
       --name tnse_ex1_P2P1 --vary refinement_n_initial_steps=3,4,5,6
+  # spatial convergence (errors at the final time in all norms, rates w.r.t.
+  # h ~ DoFs^-1/2 in <name>_summary.txt); time step small and fixed
+  python3 transient_study.py --program tnse --base ../ParMooN-2026/data/input_files/tnse2d_adaptive_spg_ex1.dat \\
+      --name spatial_P2P1 --set trab2_adaptive=false time_step_length=0.0025 time_end=0.05 \\
+      adaptive_mesh=false output_write_vtk=false --vary refinement_n_initial_steps=2,3,4,5,6 --no-meshes
+  python3 transient_study.py --program tcd --base ../ParMooN-2026/data/input_files/tcd2d_adaptive_tr_ex2.dat \\
+      --name spatial_cd --set trab2_adaptive=false time_step_length=0.001 time_end=0.1 \\
+      adaptive_mesh=false output_write_vtk=false --vary refinement_n_initial_steps=3,4,5,6,7 --no-meshes
+
   # temporal convergence of the TR step on the verification example 28 (exact
   # P2/P1 solution, so the error is the time discretization error only)
   python3 transient_study.py --program tnse --base ../ParMooN-2026/data/input_files/tnse2d_adaptive_spg_verify_time.dat \\
@@ -158,6 +167,21 @@ def read_table(path):
     if results is not None:
         tab["_results"] = results  # E_0 E_p D L2(u(T)) H1(u(T)) max_u
     return tab
+
+
+def fmt_rate(x):
+    """rate with two digits, '---' if there is no previous run or the rate is
+    not defined (same mesh, zero error, ...)"""
+    if x is None or not np.isfinite(x):
+        return "---"
+    return f"{x:.2f}"
+
+
+def rate_between(e_prev, e, q):
+    """log(e_prev/e)/q, None if not defined"""
+    if e_prev is None or e is None or e_prev <= 0 or e <= 0 or q == 0:
+        return None
+    return np.log(e_prev/e)/q
 
 
 def column(tab, *names):
@@ -304,16 +328,33 @@ def spatial_summary(args, runs):
         f.write("# run  cells  dofs  max_t_error  max_t_eta  eff_min  eff_mean  eff_max  steps"
                 "  rate_error  rate_eta   (rates w.r.t. h ~ DoFs^-1/2 between consecutive runs)\n")
         for i, r in enumerate(rows):
-            rate_e = rate_eta = float("nan")
-            if i > 0 and rows[i-1]["dofs"] != r["dofs"]:
+            rate_e = rate_eta = None
+            if i > 0:
                 q = 0.5*np.log(r["dofs"]/rows[i-1]["dofs"])
-                if rows[i-1]["err"] > 0 and r["err"] > 0:
-                    rate_e = np.log(rows[i-1]["err"]/r["err"])/q
-                if rows[i-1]["eta"] > 0 and r["eta"] > 0:
-                    rate_eta = np.log(rows[i-1]["eta"]/r["eta"])/q
+                rate_e = rate_between(rows[i-1]["err"], r["err"], q)
+                rate_eta = rate_between(rows[i-1]["eta"], r["eta"], q)
             f.write(f"{r['label']}  {int(r['cells'])}  {int(r['dofs'])}  {r['err']:.4e}  {r['eta']:.4e}"
                     f"  {r['eff_min']:.3f}  {r['eff_mean']:.3f}  {r['eff_max']:.3f}  {r['steps']}"
-                    f"  {rate_e:.2f}  {rate_eta:.2f}\n")
+                    f"  {fmt_rate(rate_e)}  {fmt_rate(rate_eta)}\n")
+        # errors at the final time in all norms the program writes
+        norms = [n for n in ("error", "eta", "L2(u)", "H1(u)", "L2(div_u)", "L2(p)")
+                 if all(n in tab for _, tab in runs)]
+        if norms:
+            f.write("\n# errors at the final time and rates w.r.t. h ~ DoFs^-1/2"
+                    " ('error' is the norm of the method: SUPG / SPG norm)\n")
+            f.write("# run  dofs  " + "  ".join(f"{n}  rate" for n in norms) + "\n")
+            prev = None
+            for label, tab in runs:
+                dofs = column(tab, "dofs")[-1]
+                vals = [tab[n][-1] for n in norms]
+                line = f"{label}  {int(dofs)}"
+                for j, v in enumerate(vals):
+                    rate = None
+                    if prev is not None:
+                        rate = rate_between(prev[1][j], v, 0.5*np.log(dofs/prev[0]))
+                    line += f"  {v:.4e}  {fmt_rate(rate)}"
+                f.write(line + "\n")
+                prev = (dofs, vals)
     print(f"wrote {out}")
     if len(rows) > 1 and all(r["err"] > 0 for r in rows):
         import matplotlib
@@ -366,14 +407,13 @@ def temporal_summary(args, runs):
         f.write("# dt  error(T)  max_t error  eta(T)  steps  rate_error(T)  rate_max_error"
                 "  rate_eta(T)   (rates w.r.t. dt between consecutive runs)\n")
         for i, r in enumerate(rows):
-            rates = [float("nan")]*3
+            rates = [None]*3
             if i > 0:
                 q = np.log(rows[i-1]["dt"]/r["dt"])
                 for j, key in enumerate(("err_T", "err_max", "eta_T")):
-                    if rows[i-1][key] > 0 and r[key] > 0:
-                        rates[j] = np.log(rows[i-1][key]/r[key])/q
+                    rates[j] = rate_between(rows[i-1][key], r[key], q)
             f.write(f"{r['dt']:.6g}  {r['err_T']:.4e}  {r['err_max']:.4e}  {r['eta_T']:.4e}"
-                    f"  {r['steps']}  {rates[0]:.2f}  {rates[1]:.2f}  {rates[2]:.2f}\n")
+                    f"  {r['steps']}  " + "  ".join(fmt_rate(x) for x in rates) + "\n")
     print(f"wrote {out}")
     import matplotlib
     matplotlib.use("Agg")
@@ -478,14 +518,23 @@ def main():
         if res:
             out = os.path.join(args.outdir, f"{args.name}_results.txt")
             with open(out, "w") as f:
-                f.write("# run  E_0  E_p  D  L2(u(T))  H1(u(T))  max_u  [rates of E_0, E_p w.r.t. the previous run, factor 2 assumed]\n")
+                f.write("# run  E_0  E_p  D  L2(u(T))  H1(u(T))  max_u  rate_E_0  rate_E_p"
+                        "   (rates w.r.t. the previous run: w.r.t. time_step_length if it is"
+                        " varied, otherwise a factor 2 per run is assumed, e.g. one"
+                        " refinement level)\n")
                 prev = None
                 for label, r in res:
-                    rate = ""
-                    if prev is not None and prev[0] > 0 and r[0] > 0:
-                        rate = f"  {np.log2(prev[0]/r[0]):.2f} {np.log2(prev[1]/r[1]) if prev[1] > 0 and r[1] > 0 else float('nan'):.2f}"
-                    f.write(f"{label}  " + "  ".join(f"{x:.4e}" for x in r) + rate + "\n")
-                    prev = r
+                    r_e0 = r_ep = None
+                    if prev is not None:
+                        m0 = re.search(r"time_step_length=([0-9.eE+-]+)", prev[0])
+                        m1 = re.search(r"time_step_length=([0-9.eE+-]+)", label)
+                        q = (np.log(float(m0.group(1))/float(m1.group(1)))
+                             if m0 and m1 else np.log(2.))
+                        r_e0 = rate_between(prev[1][0], r[0], q)
+                        r_ep = rate_between(prev[1][1], r[1], q)
+                    f.write(f"{label}  " + "  ".join(f"{x:.4e}" for x in r)
+                            + f"  {fmt_rate(r_e0)}  {fmt_rate(r_ep)}\n")
+                    prev = (label, r)
             print(f"wrote {out}")
     else:
         print("no tables to plot")

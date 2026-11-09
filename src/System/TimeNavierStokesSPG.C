@@ -8,6 +8,9 @@
 #include "MooNMD_Io.h"
 #include "NSE_SPG_ErrorEstimator.h"
 #include "SquareMatrix2D.h"
+#include "AuxParam2D.h"
+#include "MainUtilities.h"
+#include <algorithm>
 #include <cmath>
 
 TimeNavierStokesSPG::TimeNavierStokesSPG(const TDomain& domain,
@@ -37,9 +40,47 @@ void TimeNavierStokesSPG::initialize()
   t = db["time_start"];
   TDatabase::TimeDB->CURRENTTIME = t;
   const Example_NSE2D& example = ns.get_example();
+  BlockVector& sol = ns.get_solution();
   ns.get_velocity().GetComponent(0)->Interpolate(example.get_exact(0));
   ns.get_velocity().GetComponent(1)->Interpolate(example.get_exact(1));
-  set_dirichlet_values(t, ns.get_solution());
+  set_dirichlet_values(t, sol);
+  std::string init = db.contains("tnse_initial_value")
+                     ? db["tnse_initial_value"].value_as_string() : "projection";
+  if(init == "projection")
+  {
+    // The interpolant of u(t0) is not consistent with the discrete
+    // constraint (divergence row with PSPG); its component in the stiff modes
+    // (stiffness ~ 1/(delta_0 h^2)) is carried on by the trapezoidal rule with
+    // factor ~ -1 and pollutes the pressure, which is the multiplier of the
+    // constraint (L2 pressure error O(1) on fine meshes with fixed steps).
+    // Projection: the stabilized equations at t0 with the exact time
+    // derivative, linearized at b = I_h u(t0):
+    //   A^b (U0, P0) = L(t0) - M^b I_h d_t u(t0),   U0 = g(t0) on the boundary.
+    const double eps = 1e-5*std::max(1., std::abs(t));
+    BlockVector up(sol), um(sol), ut(sol);
+    for(int sgn : {1, -1})
+    {
+      TDatabase::TimeDB->CURRENTTIME = t + sgn*eps;
+      BlockVector& v = (sgn > 0) ? up : um;
+      TFEVectFunct2D vf(ns.get_velocity_space(), "v", v.get_entries(), 2);
+      vf.GetComponent(0)->Interpolate(example.get_exact(0));
+      vf.GetComponent(1)->Interpolate(example.get_exact(1));
+    }
+    TDatabase::TimeDB->CURRENTTIME = t;
+    ut.reset();
+    for(size_t i = 0; i < 2*n_u; ++i)
+      ut.get_entries()[i] = (up.get_entries()[i] - um.get_entries()[i])/(2.*eps);
+    ns.assemble_linear_terms();    // A^b, L(t0), b = I_h u(t0)
+    assemble_mass(M, db);          // M^b
+    rhs = ns.get_rhs();
+    M.apply_scaled_add(ut, rhs, -1.);
+    rhs.copy_nonactive(ns.get_rhs());
+    sol.copy_nonactive(rhs);
+    solver.solve(ns.get_matrix(), rhs, sol);
+    project_pressure();
+  }
+  else if(init != "interpolation")
+    ErrThrow("tnse_initial_value must be projection or interpolation");
   initial_time_derivative(t);
 }
 
@@ -347,6 +388,35 @@ void TimeNavierStokesSPG::output(int index)
 {
   TDatabase::TimeDB->CURRENTTIME = t;
   ns.output(index);
+}
+
+std::vector<std::pair<std::string, double>> TimeNavierStokesSPG::error_columns()
+{
+  const Example_NSE2D& example = ns.get_example();
+  if(example.get_exact().size() < 3)
+    return {};
+  TDatabase::TimeDB->CURRENTTIME = t;
+  TAuxParam2D aux;
+  MultiIndex2D derivs[3] = {MultiIndex2D::D00, MultiIndex2D::D10,
+                            MultiIndex2D::D01};
+  const TFESpace2D* vspace = ns.get_velocity_space().get();
+  const TFESpace2D* pspace = ns.get_pressure_space().get();
+  double l2u = 0., h1u = 0.;
+  for(int c = 0; c < 2; ++c)
+  {
+    double e[4] = {0., 0., 0., 0.};
+    ns.get_velocity().GetComponent(c)->GetErrors(example.get_exact(c), 3, derivs,
+      2, L2H1Errors, example.get_coeffs(), &aux, 1, &vspace, e);
+    l2u += e[0]*e[0];
+    h1u += e[1]*e[1];
+  }
+  double ep[4] = {0., 0., 0., 0.};
+  ns.get_pressure().GetErrors(example.get_exact(2), 3, derivs, 2, L2H1Errors,
+                              nullptr, &aux, 1, &pspace, ep);
+  double div = ns.get_velocity().GetL2NormDivergenceError(example.get_exact(0),
+                                                          example.get_exact(1));
+  return {{"L2(u)", std::sqrt(l2u)}, {"H1(u)", std::sqrt(h1u)},
+          {"L2(div_u)", div}, {"L2(p)", ep[0]}};
 }
 
 void TimeNavierStokesSPG::copy_time_state(const AdaptiveTimeSystem& old)

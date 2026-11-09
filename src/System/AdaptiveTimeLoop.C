@@ -45,7 +45,10 @@ AdaptiveTimeLoop::AdaptiveTimeLoop(TDomain& dom, const ParameterDatabase& param_
   output_index = 0;
   system->output(output_index++); // initial condition
   table << "# time  dt  cells  dofs  eta  error  effectivity  n_marked_refine"
-           "  n_marked_coarsen\n";
+           "  n_marked_coarsen";
+  for(const auto& col : system->error_columns())
+    table << "  " << col.first;
+  table << "\n";
   // the table is written and flushed after every accepted step, so that an
   // interrupted run still leaves its table behind
   std::string file;
@@ -99,14 +102,18 @@ void AdaptiveTimeLoop::run()
     table << std::scientific << std::setprecision(6) << t << " " << k_eff << " "
           << n_cells << " " << system->get_n_dofs() << " " << eta << " " << error
           << " " << std::fixed << std::setprecision(4) << eff << " " << n_marked
-          << " " << n_coarsen << "\n";
+          << " " << n_coarsen;
+    std::ostringstream extra;
+    for(const auto& col : system->error_columns())
+      extra << " " << std::scientific << std::setprecision(6) << col.second;
+    table << extra.str() << "\n";
     if(table_file.is_open())
     {
       table_file << std::scientific << std::setprecision(6) << t << " " << k_eff
                  << " " << n_cells << " " << system->get_n_dofs() << " " << eta
                  << " " << error << " " << std::fixed << std::setprecision(4)
-                 << eff << " " << n_marked << " " << n_coarsen << "\n"
-                 << std::flush;
+                 << eff << " " << n_marked << " " << n_coarsen << extra.str()
+                 << "\n" << std::flush;
     }
 
     // --- output ----------------------------------------------------------------

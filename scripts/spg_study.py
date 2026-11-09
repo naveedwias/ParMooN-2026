@@ -24,6 +24,7 @@ Typical use (from the build directory):
 Runs whose table file already exists in the output directory are not repeated,
 so the script can be restarted and the plots regenerated with --plot-only.
 """
+import math
 import argparse
 import csv
 import itertools
@@ -95,6 +96,14 @@ decrease_reftol_factor: 0.8
 write_adaptive_mesh: {ps}
 """
 
+
+
+def fmt_rate7(x, first):
+    """rate in a 7 character field, '---' for the first level (no previous
+    level) or if not defined"""
+    if first or x is None or not math.isfinite(x):
+        return f"{'---':>7s}"
+    return f"{x:7.2f}"
 
 def pair_label(pair):
     v, p = pair.split("/")
@@ -297,7 +306,7 @@ def plot_study(args, study, results):
                     f.write(f"{int(r['level']):5d} {int(r['cells']):7d} "
                             f"{int(r['dofs']):8d} {r['error_spg']:12.4e} "
                             f"{r['eta']:10.4e} {r['effectivity']:8.3f} "
-                            f"{r['rate_err']:7.2f}\n")
+                            f"{fmt_rate7(r['rate_err'], r is rows[0])}\n")
     print(f"  wrote {out}")
 
 

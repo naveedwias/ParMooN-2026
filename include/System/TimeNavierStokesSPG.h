@@ -49,6 +49,8 @@ class TimeNavierStokesSPG : public AdaptiveTimeSystem
     void apply_state(const std::vector<SolutionTransfer::Snapshot>& maps) override;
     void copy_time_state(const AdaptiveTimeSystem& old) override;
     double exact_error() const override { return last_error; }
+    /// @brief L2(u), H1(u) (seminorm), L2(div u), L2(p) at the current time
+    std::vector<std::pair<std::string, double>> error_columns() override;
     /// @brief vtk output through NavierStokes (velocity, pressure) plus the
     /// discrete time derivative
     void output(int index) override;
