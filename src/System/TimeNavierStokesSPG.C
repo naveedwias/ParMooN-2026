@@ -342,6 +342,16 @@ void TimeNavierStokesSPG::estimate(ErrorEstimator<2>& estimator)
   est->estimate(ns.get_example(), ns.get_velocity(), ns.get_pressure());
   est->set_transient(nullptr);
   last_error = est->get_error_spg();
+  auto ep = est->get_error_parts();
+  last_contributions = {
+    {"eta_res", est->get_eta_res()}, {"eta_div", est->get_eta_div()},
+    {"eta_F", est->get_eta_F()}, {"eta_delta", est->get_eta_delta()},
+    {"eta_mu", est->get_eta_mu()},
+    // parts of the error, square roots: nu^1/2 |e_u|_1, (sum mu_K ||div e_u||^2)^1/2,
+    // (sum delta_K ||(b.grad) e_u + grad e_p||^2)^1/2
+    {"err_grad", std::sqrt(std::max(ep[0], 0.))},
+    {"err_div", std::sqrt(std::max(ep[2], 0.))},
+    {"err_supg", std::sqrt(std::max(ep[3], 0.))}};
 }
 
 const TCollection* TimeNavierStokesSPG::get_collection() const
@@ -415,8 +425,16 @@ std::vector<std::pair<std::string, double>> TimeNavierStokesSPG::error_columns()
                               nullptr, &aux, 1, &pspace, ep);
   double div = ns.get_velocity().GetL2NormDivergenceError(example.get_exact(0),
                                                           example.get_exact(1));
-  return {{"L2(u)", std::sqrt(l2u)}, {"H1(u)", std::sqrt(h1u)},
-          {"L2(div_u)", div}, {"L2(p)", ep[0]}};
+  std::vector<std::pair<std::string, double>> cols = {
+    {"L2(u)", std::sqrt(l2u)}, {"H1(u)", std::sqrt(h1u)},
+    {"L2(div_u)", div}, {"L2(p)", ep[0]}};
+  if(last_contributions.empty()) // before the first estimate: names only
+    for(const char* n : {"eta_res", "eta_div", "eta_F", "eta_delta", "eta_mu",
+                         "err_grad", "err_div", "err_supg"})
+      cols.push_back({n, 0.});
+  else
+    cols.insert(cols.end(), last_contributions.begin(), last_contributions.end());
+  return cols;
 }
 
 void TimeNavierStokesSPG::copy_time_state(const AdaptiveTimeSystem& old)

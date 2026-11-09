@@ -49,7 +49,9 @@ class TimeNavierStokesSPG : public AdaptiveTimeSystem
     void apply_state(const std::vector<SolutionTransfer::Snapshot>& maps) override;
     void copy_time_state(const AdaptiveTimeSystem& old) override;
     double exact_error() const override { return last_error; }
-    /// @brief L2(u), H1(u) (seminorm), L2(div u), L2(p) at the current time
+    /// @brief L2(u), H1(u) (seminorm), L2(div u), L2(p) at the current time,
+    /// the contributions of the estimator (eta_res, eta_div, eta_F, eta_delta,
+    /// eta_mu) and the parts of the error in the SPG norm of the last estimate
     std::vector<std::pair<std::string, double>> error_columns() override;
     /// @brief vtk output through NavierStokes (velocity, pressure) plus the
     /// discrete time derivative
@@ -68,6 +70,8 @@ class TimeNavierStokesSPG : public AdaptiveTimeSystem
     Solver<BlockFEMatrix, BlockVector> solver;
     ParameterDatabase db;
     double t, last_error, nonlin_tol;
+    /// contributions of the last estimate (name, value)
+    std::vector<std::pair<std::string, double>> last_contributions;
     unsigned int maxit;
     int n_picard;
     size_t n_u, n_p, n_active_u;

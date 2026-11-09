@@ -94,12 +94,20 @@ def read_dat(path):
 
 def set_param(lines, key, value):
     """replace 'key: ...' or append it; returns the new lines"""
-    pat = re.compile(rf"^\s*{re.escape(key)}\s*:")
+    pat = re.compile(rf"^\s*{re.escape(key)}\s*:\s*(.*)$")
     out, done = [], False
     for ln in lines:
-        if pat.match(ln):
+        m = pat.match(ln)
+        if m:
             if not done:
-                out.append(f"{key}: {value}")
+                # ParMooN checks the type: keep a floating point parameter a
+                # floating point literal ("100" would be read as an integer)
+                old = m.group(1).strip()
+                v = str(value).strip()
+                if re.fullmatch(r"[-+]?\d+", v) and re.search(r"[.eE]", old) \
+                        and re.fullmatch(r"[-+]?[\d.]+([eE][-+]?\d+)?", old):
+                    v += ".0"
+                out.append(f"{key}: {v}")
                 done = True
             # drop duplicates
         else:
@@ -450,6 +458,216 @@ def temporal_summary(args, runs):
     print(f"wrote {out}")
 
 
+CONTRIB = ["eta_res", "eta_div", "eta_F", "eta_delta", "eta_mu"]
+CONTRIB_LABEL = {"eta_res": r"$\eta_{res}$", "eta_div": r"$\eta_{div}$",
+                 "eta_F": r"$\eta_F$", "eta_delta": r"$\eta_\delta$",
+                 "eta_mu": r"$\eta_\mu$"}
+ERRPART = ["err_grad", "err_div", "err_supg"]
+ERRPART_LABEL = {"err_grad": r"$\nu^{1/2}|e_u|_1$",
+                 "err_div": r"$(\sum\mu_K\|\nabla\cdot e_u\|^2)^{1/2}$",
+                 "err_supg": r"$(\sum\delta_K\|(b\cdot\nabla)e_u+\nabla e_p\|^2)^{1/2}$"}
+NORMS = ["L2(u)", "H1(u)", "L2(div_u)", "L2(p)"]
+
+
+def convergence_study(args, runs, combos):
+    """Convergence versus the number of degrees of freedom.
+
+    Runs which differ only in the x parameter (refinement level, or the
+    adaptive tolerance) form one curve; every value of the other varied
+    parameters (viscosity, pair, ...) gives one curve. Per run one value is
+    taken: at the final time, or the maximum over time (--measure). Writes
+    <name>_convergence.txt (values and rates w.r.t. h ~ DoFs^-1/2) and the
+    figures <name>_convergence (error, eta, effectivity with its range over
+    time, cells), <name>_contributions (estimator contributions and error
+    parts per curve) and <name>_norms (L2(u), H1(u), L2(div u), L2(p))."""
+    keys = [k for k, _ in combos[0]] if combos and combos[0] else []
+    if not keys:
+        return
+    xkey = args.x_key
+    if xkey is None:
+        for cand in ("refinement_n_initial_steps", "adaptive_tol1/adaptive_tol2",
+                     "adaptive_tol1"):
+            if cand in keys:
+                xkey = cand
+                break
+    if xkey is None or xkey not in keys:
+        return
+    groups = {}
+    for (label, tab), combo in zip(runs, combos):
+        rest = tuple((k, v) for k, v in combo if k != xkey)
+        groups.setdefault(rest, []).append(tab)
+    if max(len(g) for g in groups.values()) < 2:
+        return
+
+    def value(tab, key):
+        v = tab.get(key)
+        if v is None:
+            return None
+        tt = tab["time"]
+        if args.measure == "final":
+            return v[-1]
+        ok = tt > tt[0] + 0.02*(tt[-1] - tt[0])
+        return v[ok].max() if ok.any() else v[-1]
+
+    def dofs_of(tab):
+        d = tab["dofs"]
+        return {"final": d[-1], "mean": d.mean(), "max": d.max()}[args.dofs]
+
+    def eff_range(tab):
+        tt, eff = tab["time"], tab.get("effectivity")
+        err = tab.get("error")
+        if eff is None or err is None:
+            return (np.nan,)*3
+        ok = (err > 0) & (tt > tt[0] + 0.02*(tt[-1] - tt[0]))
+        if not ok.any():
+            return (np.nan,)*3
+        return eff[ok].min(), eff[ok].mean(), eff[ok].max()
+
+    def group_label(rest):
+        return ", ".join(f"{k.replace('VELOCITY_SPACE/PRESSURE_SPACE', 'pair')}={v}"
+                         for k, v in rest) or args.name
+
+    curves = []
+    for rest, tabs in groups.items():
+        tabs = sorted(tabs, key=dofs_of)
+        curves.append((group_label(rest), tabs))
+
+    # ---- table
+    out = os.path.join(args.outdir, f"{args.name}_convergence.txt")
+    cols = ["error", "eta"] + [c for c in NORMS + CONTRIB + ERRPART
+                               if all(c in t for _, ts in curves for t in ts)]
+    with open(out, "w") as f:
+        f.write(f"# convergence study, value per run: {args.measure} time, DoFs: "
+                f"{args.dofs}; rates w.r.t. h ~ DoFs^-1/2; effectivity at the "
+                f"{args.measure} time and its min/mean/max over time\n")
+        for glabel, tabs in curves:
+            f.write(f"\n# {glabel}\n# cells  dofs  " +
+                    "  ".join(f"{c}  rate" for c in cols) +
+                    "  effectivity  eff_min  eff_mean  eff_max\n")
+            prev = None
+            for tab in tabs:
+                d = dofs_of(tab)
+                vals = [value(tab, c) for c in cols]
+                line = f"{int(tab['cells'][-1])}  {int(round(d))}"
+                for j, v in enumerate(vals):
+                    r = None
+                    if prev is not None:
+                        r = rate_between(prev[1][j], v, 0.5*np.log(d/prev[0]))
+                    line += f"  {v:.4e}  {fmt_rate(r)}"
+                e = value(tab, "eta"), value(tab, "error")
+                eff = e[0]/e[1] if e[1] and e[1] > 0 else np.nan
+                lo, me, hi = eff_range(tab)
+                line += f"  {eff:.3f}  {lo:.3f}  {me:.3f}  {hi:.3f}"
+                f.write(line + "\n")
+                prev = (d, vals)
+    print(f"wrote {out}")
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    slopes = [float(x) for x in args.slopes.split(",") if x.strip()]
+
+    def ref_lines(ax, d, y):
+        d = np.asarray(d, dtype=float)
+        for s_ in slopes:
+            yy = y[-1]*(d/d[-1])**(-s_/2.)
+            ax.loglog(d, yy, ":", color="gray", lw=0.8)
+            ax.annotate(f"$h^{{{s_:g}}}$", (d[0], yy[0]), fontsize=7, color="gray")
+
+    # ---- convergence figure
+    fig, axs = plt.subplots(1, 3, figsize=(13, 3.9))
+    for i, (glabel, tabs) in enumerate(curves):
+        c = colors[i % len(colors)]
+        d = [dofs_of(t) for t in tabs]
+        err = np.array([value(t, "error") for t in tabs], dtype=float)
+        eta = np.array([value(t, "eta") for t in tabs], dtype=float)
+        axs[0].loglog(d, err, "o-", color=c, label=f"error, {glabel}")
+        axs[0].loglog(d, eta, "s--", color=c, label=r"$\eta$" + f", {glabel}")
+        if i == 0:
+            ref_lines(axs[0], d, err)
+        eff = eta/err
+        rng = np.array([eff_range(t) for t in tabs])
+        axs[1].semilogx(d, eff, "o-", color=c, label=glabel)
+        axs[1].fill_between(d, rng[:, 0], rng[:, 2], color=c, alpha=0.15)
+        axs[2].loglog(d, [t["cells"][-1] if args.dofs == "final" else
+                          {"mean": t["cells"].mean(), "max": t["cells"].max()}[args.dofs]
+                          for t in tabs], "o-", color=c, label=glabel)
+    axs[0].set_title(f"error and estimator ({args.measure} time)")
+    axs[1].set_title("effectivity index (band: range over time)")
+    axs[2].set_title("number of cells")
+    for ax in axs:
+        ax.set_xlabel("degrees of freedom")
+        ax.grid(True, which="both", alpha=0.3)
+    axs[0].legend(fontsize=7)
+    axs[1].legend(fontsize=7)
+    fig.suptitle(args.name)
+    fig.tight_layout()
+    out = os.path.join(args.outdir, f"{args.name}_convergence.{args.format}")
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    print(f"wrote {out}")
+
+    # ---- contributions of the estimator and parts of the error
+    have_c = all(c in t for _, ts in curves for t in ts for c in CONTRIB)
+    if have_c:
+        n = len(curves)
+        fig, axs = plt.subplots(1, n, figsize=(4.4*n, 3.9), squeeze=False)
+        for i, (glabel, tabs) in enumerate(curves):
+            ax = axs[0][i]
+            d = [dofs_of(t) for t in tabs]
+            ax.loglog(d, [value(t, "eta") for t in tabs], "k-", lw=2, label=r"$\eta$")
+            ax.loglog(d, [value(t, "error") for t in tabs], "k--", lw=2, label="error")
+            for j, cname in enumerate(CONTRIB):
+                y = np.array([value(t, cname) for t in tabs], dtype=float)
+                if (y > 0).any():
+                    ax.loglog(d, np.where(y > 0, y, np.nan), "o-",
+                              color=colors[j % len(colors)], ms=3,
+                              label=CONTRIB_LABEL[cname])
+            for j, cname in enumerate(ERRPART):
+                if all(cname in t for t in tabs):
+                    y = np.array([value(t, cname) for t in tabs], dtype=float)
+                    if (y > 0).any():
+                        ax.loglog(d, np.where(y > 0, y, np.nan), "v:",
+                                  color=colors[(j + 5) % len(colors)], ms=3,
+                                  label=ERRPART_LABEL[cname])
+            ax.set_title(glabel, fontsize=9)
+            ax.set_xlabel("degrees of freedom")
+            ax.grid(True, which="both", alpha=0.3)
+        axs[0][0].legend(fontsize=6)
+        fig.suptitle(f"{args.name}: contributions of the estimator (solid) and of "
+                     f"the error (dotted), {args.measure} time")
+        fig.tight_layout()
+        out = os.path.join(args.outdir, f"{args.name}_contributions.{args.format}")
+        fig.savefig(out, dpi=150)
+        plt.close(fig)
+        print(f"wrote {out}")
+
+    # ---- standard norms
+    norms = [c for c in NORMS if all(c in t for _, ts in curves for t in ts)]
+    if norms:
+        fig, axs = plt.subplots(1, len(norms), figsize=(3.6*len(norms), 3.6),
+                                squeeze=False)
+        for k, nname in enumerate(norms):
+            ax = axs[0][k]
+            for i, (glabel, tabs) in enumerate(curves):
+                d = [dofs_of(t) for t in tabs]
+                y = np.array([value(t, nname) for t in tabs], dtype=float)
+                ax.loglog(d, y, "o-", color=colors[i % len(colors)], label=glabel)
+                if i == 0:
+                    ref_lines(ax, d, y)
+            ax.set_title(nname)
+            ax.set_xlabel("degrees of freedom")
+            ax.grid(True, which="both", alpha=0.3)
+        axs[0][0].legend(fontsize=7)
+        fig.suptitle(f"{args.name}: errors in standard norms, {args.measure} time")
+        fig.tight_layout()
+        out = os.path.join(args.outdir, f"{args.name}_norms.{args.format}")
+        fig.savefig(out, dpi=150)
+        plt.close(fig)
+        print(f"wrote {out}")
+
+
 # ---------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
@@ -467,6 +685,18 @@ def main():
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--plot-only", action="store_true")
     ap.add_argument("--no-meshes", action="store_true", help="do not draw the PostScript meshes")
+    ap.add_argument("--x-key", default=None,
+                    help="varied parameter along a convergence curve (default: "
+                         "refinement_n_initial_steps if varied, else the varied adaptive "
+                         "tolerance); all other varied parameters give one curve each")
+    ap.add_argument("--measure", default="final", choices=["final", "max"],
+                    help="value per run in the convergence study: at the final time or "
+                         "the maximum over time (start-up excluded)")
+    ap.add_argument("--dofs", default="final", choices=["final", "mean", "max"],
+                    help="DoFs per run in the convergence study (adaptive meshes: "
+                         "final, time-averaged or maximal number)")
+    ap.add_argument("--slopes", default="1,2",
+                    help="reference slopes in h (DoFs^-s/2) for the convergence plots")
     args = ap.parse_args()
 
     prog = PROGRAMS[args.program]
@@ -479,6 +709,7 @@ def main():
     fixed = parse_vary(args.set)
 
     runs = []
+    run_combos = []
     for combo in combos:
         name = run_name(args.name, combo)
         run_dir = os.path.join(args.outdir, name)
@@ -531,12 +762,14 @@ def main():
             tab = read_table(table)
             if tab is not None:
                 runs.append((label, tab))
+                run_combos.append(combo)
                 if not args.no_meshes:
                     plot_meshes(args, run_dir, label)
     if runs:
         plot_tables(args, runs)
         spatial_summary(args, runs)
         temporal_summary(args, runs)
+        convergence_study(args, runs, run_combos)
         res = [(label, tab["_results"]) for label, tab in runs if "_results" in tab]
         if res:
             out = os.path.join(args.outdir, f"{args.name}_results.txt")
