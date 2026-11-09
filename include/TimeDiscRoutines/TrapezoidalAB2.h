@@ -38,8 +38,10 @@ class TrapezoidalAB2_System
     virtual void tr_step(double t, double k) = 0;
     /// @brief L2 norm of u - u_p (the AB2 error estimate before scaling)
     virtual double predictor_difference_norm() = 0;
-    /// @brief u <- (u + u_saved)/2, d <- (d + d_saved)/2
-    virtual void average_with_saved() = 0;
+    /// @brief u <- (u + u_saved)/2, d <- (d + d_saved)/2; the averaged state
+    /// belongs to the midpoint t_mid of the last step, which the system must
+    /// take as its current time (data, boundary values, estimator, output)
+    virtual void average_with_saved(double t_mid) = 0;
     /// @brief d_old <- d_saved (after an accepted step)
     virtual void shift_derivative() = 0;
 };

@@ -8,6 +8,7 @@
 #include "LocalAssembling.h"
 #include "MooNMD_Io.h"
 #include "SquareMatrix2D.h"
+#include <algorithm>
 #include <cmath>
 
 TimeConvectionDiffusionTR::TimeConvectionDiffusionTR(
@@ -21,7 +22,7 @@ TimeConvectionDiffusionTR::TimeConvectionDiffusionTR(
                   std::vector<BoundValueFunct2D*>(ex.get_bd(), ex.get_bd() + 1),
                   ex.get_coeffs()),
    db(param_db), M(BlockFEMatrix::CD2D(space)), A(BlockFEMatrix::CD2D(space)),
-   M_galerkin(BlockFEMatrix::CD2D(space)), S(BlockFEMatrix::CD2D(space)),
+   S(BlockFEMatrix::CD2D(space)),
    u(M, false), d(M, false), d_old(M, false), u_saved(M, false),
    d_saved(M, false), u_pred(M, false), rhs(M, true), work(M, true),
    solver(param_db), writer(param_db), t(0.)
@@ -30,25 +31,11 @@ TimeConvectionDiffusionTR::TimeConvectionDiffusionTR(
   d_fct.reset(new TFEFunction2D(space, "dt_u", d.get_entries()));
   writer.add_fe_function(u_fct.get());
   writer.add_fe_function(d_fct.get());
-  // Galerkin mass matrix for the L2 norm of the error estimate
-  {
-    ParameterDatabase db_g(db);
-    db_g["space_discretization_type"] = "galerkin";
-    std::vector<const TFEFunction2D*> fcts = {u_fct.get()};
-    LocalAssembling<2> la(db_g, LocalAssembling_type::TCDMassOnly, fcts,
-                          example.get_coeffs());
-    // TCDMass writes into the second local matrix
-    auto block = M_galerkin.get_blocks_uniquely()[0].get();
-    auto dummy = S.get_blocks_uniquely()[0].get();
-    TSquareMatrix2D* sq[2] = {reinterpret_cast<TSquareMatrix2D*>(dummy),
-                              reinterpret_cast<TSquareMatrix2D*>(block)};
-    sq[0]->reset();
-    sq[1]->reset();
-    const TFESpace2D* sp = space.get();
-    BoundCondFunct2D* bc = space->get_boundary_condition();
-    BoundValueFunct2D* bd = example.get_bd(0);
-    Assemble2D(1, &sp, 2, sq, 0, nullptr, 0, nullptr, &sp, &bc, &bd, la, true);
-  }
+  t = db["time_start"];
+}
+
+void TimeConvectionDiffusionTR::initialize()
+{
   t = db["time_start"];
   TDatabase::TimeDB->CURRENTTIME = t;
   u_fct->Interpolate(example.get_initial_cond(0));
@@ -58,10 +45,8 @@ TimeConvectionDiffusionTR::TimeConvectionDiffusionTR(
   // Frutos et al. 2014) interpolating u_0 everywhere makes the boundary
   // values jump from 0 to g within the first time step, so the discrete
   // time derivative of the first step is O(1/k) and the error estimate and
-  // the step size control are meaningless. assemble() writes the boundary
-  // data into the non-active rows of the right-hand side.
-  assemble(t);
-  u.copy_nonactive(rhs);
+  // the step size control are meaningless.
+  set_dirichlet_values(t, u);
   compute_time_derivative(t);
   d_old = d;
 }
@@ -93,17 +78,18 @@ void TimeConvectionDiffusionTR::compute_time_derivative(double time)
   assemble(time);
   work = rhs;
   A.apply_scaled_add(u, work, -1.);
-  size_t n_active = space->get_n_active();
-  for(size_t i = n_active; i < work.length(); ++i)
-    work.get_entries()[i] = 0.; // Dirichlet data constant in time
+  // Dirichlet rows: time derivative of the boundary data
+  set_dirichlet_time_derivative(time, work);
+  d.copy_nonactive(work);
   solver.solve(M, work, d);
 }
 
+// L2 norm by quadrature (an assembled mass matrix has identity rows for
+// the Dirichlet dofs, which would weight the boundary values with 1)
 double TimeConvectionDiffusionTR::l2_norm(const BlockVector& v)
 {
-  BlockVector Mv(v);
-  M_galerkin.apply(v, Mv);
-  return std::sqrt(std::abs(dot(Mv, v)));
+  TFEFunction2D f(space, "e", const_cast<double*>(v.get_entries()));
+  return f.get_L2_norm();
 }
 
 void TimeConvectionDiffusionTR::save_state()
@@ -145,10 +131,8 @@ void TimeConvectionDiffusionTR::tr_step(double time, double k)
   d.add_scaled(u_saved, -1.);
   d.scale(2./k);
   d.add_scaled(d_saved, -1.);
-  size_t n_active = space->get_n_active();
-  for(size_t i = n_active; i < d.length(); ++i)
-    d.get_entries()[i] = 0.;
   t = time + k;
+  set_dirichlet_time_derivative(t, d); // see TimeNavierStokesSPG::tr_step
 }
 
 double TimeConvectionDiffusionTR::predictor_difference_norm()
@@ -158,12 +142,36 @@ double TimeConvectionDiffusionTR::predictor_difference_norm()
   return l2_norm(e);
 }
 
-void TimeConvectionDiffusionTR::average_with_saved()
+void TimeConvectionDiffusionTR::average_with_saved(double t_mid)
 {
   u.add_scaled(u_saved, 1.);
   u.scale(0.5);
   d.add_scaled(d_saved, 1.);
   d.scale(0.5);
+  t = t_mid;
+  set_dirichlet_values(t, u);          // see TimeNavierStokesSPG
+  set_dirichlet_time_derivative(t, d);
+}
+
+void TimeConvectionDiffusionTR::set_dirichlet_values(double time, BlockVector& v)
+{
+  const double t_save = TDatabase::TimeDB->CURRENTTIME;
+  TDatabase::TimeDB->CURRENTTIME = time;
+  TFEFunction2D f(space, "bd", v.get_entries());
+  f.SetDirichletBC(space->get_boundary_condition(), example.get_bd(0));
+  TDatabase::TimeDB->CURRENTTIME = t_save;
+}
+
+void TimeConvectionDiffusionTR::set_dirichlet_time_derivative(double time,
+                                                              BlockVector& v)
+{
+  const double eps = 1e-5*std::max(1., std::abs(time));
+  BlockVector gp(v), gm(v);
+  set_dirichlet_values(time + eps, gp);
+  set_dirichlet_values(time - eps, gm);
+  size_t n_active = space->get_n_active();
+  for(size_t i = n_active; i < v.length(); ++i)
+    v.get_entries()[i] = (gp.get_entries()[i] - gm.get_entries()[i])/(2.*eps);
 }
 
 void TimeConvectionDiffusionTR::shift_derivative()
@@ -211,11 +219,8 @@ void TimeConvectionDiffusionTR::apply_state(
   // next to a discontinuity of g). The next time step would then force this
   // node from the interpolated value to g within one step and produce a
   // discrete time derivative of size O(1/k) in the neighbouring cells.
-  assemble(t);
-  u.copy_nonactive(rhs);
-  size_t n_active = space->get_n_active();
-  for(size_t i = n_active; i < d.length(); ++i)
-    d.get_entries()[i] = d_old.get_entries()[i] = 0.; // time-independent data
+  set_dirichlet_values(t, u);
+  set_dirichlet_time_derivative(t, d);
   u_saved = u;
   d_saved = d;
   u_pred = u;

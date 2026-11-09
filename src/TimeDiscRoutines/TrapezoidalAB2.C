@@ -68,8 +68,8 @@ double TrapezoidalAB2::advance(TrapezoidalAB2_System& sys)
   double k_eff = k;
   if(!fixed_step && n_star > 0 && n_since_avg >= n_star)
   {
-    sys.average_with_saved();
     t -= 0.5*k;
+    sys.average_with_saved(t);
     k_eff = 0.5*k;
     n_since_avg = 0;
   }

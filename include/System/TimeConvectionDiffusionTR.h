@@ -27,19 +27,20 @@
 class TimeConvectionDiffusionTR : public AdaptiveTimeSystem
 {
   public:
-    /// @brief system on the finest grid of the domain; the solution is the
-    /// interpolated initial condition and the time derivative is computed
-    /// from the equation at time_start
+    /// @brief system on the finest grid of the domain; initialize() sets the
+    /// interpolated initial condition (Dirichlet dofs from the boundary data)
+    /// and computes the time derivative from the equation at time_start
     TimeConvectionDiffusionTR(const TDomain& domain, const ParameterDatabase& db,
                               const Example_TimeCD2D& example);
 
+    void initialize() override;
     // TrapezoidalAB2_System
     void save_state() override;
     void restore_state() override;
     void predict(double k, double r) override;
     void tr_step(double t, double k) override;
     double predictor_difference_norm() override;
-    void average_with_saved() override;
+    void average_with_saved(double t_mid) override;
     void shift_derivative() override;
     // AdaptiveTimeSystem
     void estimate(ErrorEstimator<2>& estimator) override;
@@ -63,7 +64,7 @@ class TimeConvectionDiffusionTR : public AdaptiveTimeSystem
     const Example_TimeCD2D& example;
     Example_CD2D steady_example;
     ParameterDatabase db;
-    BlockFEMatrix M, A, M_galerkin, S;
+    BlockFEMatrix M, A, S;
     BlockVector u, d, d_old, u_saved, d_saved, u_pred, rhs, work;
     std::unique_ptr<TFEFunction2D> u_fct, d_fct;
     Solver<BlockFEMatrix, BlockVector> solver;
@@ -71,6 +72,11 @@ class TimeConvectionDiffusionTR : public AdaptiveTimeSystem
     double t;
 
     void assemble(double time);
+    /// @brief Dirichlet entries of v <- boundary data at 'time'
+    void set_dirichlet_values(double time, BlockVector& v);
+    /// @brief Dirichlet entries of v <- time derivative of the boundary data
+    /// (central difference quotient, exact zero for time-independent data)
+    void set_dirichlet_time_derivative(double time, BlockVector& v);
     void compute_time_derivative(double time);
     double l2_norm(const BlockVector& v);
 };

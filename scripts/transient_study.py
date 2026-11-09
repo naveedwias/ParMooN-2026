@@ -31,6 +31,10 @@ Examples
   # transient Navier-Stokes Example 1: spatial convergence and effectivity for several pairs
   python3 transient_study.py --program tnse --base ../ParMooN-2026/data/input_files/tnse2d_adaptive_spg_ex1.dat \\
       --name tnse_ex1_P2P1 --vary refinement_n_initial_steps=3,4,5,6
+  # temporal convergence of the TR step on the verification example 28 (exact
+  # P2/P1 solution, so the error is the time discretization error only)
+  python3 transient_study.py --program tnse --base ../ParMooN-2026/data/input_files/tnse2d_adaptive_spg_verify_time.dat \\
+      --name verify_time --vary time_step_length=0.1,0.05,0.025,0.0125,0.00625 --no-meshes
   python3 transient_study.py --program tnse --base ../ParMooN-2026/data/input_files/tnse2d_adaptive_spg_ex1.dat \\
       --name tnse_ex1_pairs --set refinement_n_initial_steps=5 --vary VELOCITY_SPACE/PRESSURE_SPACE=2/1,2/2,1/1,3/2
 
@@ -336,6 +340,60 @@ def spatial_summary(args, runs):
         print(f"wrote {out}")
 
 
+def temporal_summary(args, runs):
+    """Temporal convergence for series over time_step_length (fixed steps,
+    trab2_adaptive false, same mesh): error and eta at the final time and the
+    maximum over time, with rates w.r.t. the step length between consecutive
+    runs, and a log-log figure. Written only if every run label contains
+    time_step_length=<value>."""
+    import re
+    rows = []
+    for label, tab in runs:
+        m = re.search(r"time_step_length=([0-9.eE+-]+)", label)
+        if m is None:
+            return
+        err = column(tab, "error", "error_supg", "error_spg")
+        eta = column(tab, "eta")
+        if err is None or eta is None:
+            return
+        rows.append(dict(label=label, dt=float(m.group(1)), err_T=err[-1],
+                         err_max=err.max(), eta_T=eta[-1], steps=len(err)))
+    if len(rows) < 2:
+        return
+    rows.sort(key=lambda r: -r["dt"])
+    out = os.path.join(args.outdir, f"{args.name}_temporal.txt")
+    with open(out, "w") as f:
+        f.write("# dt  error(T)  max_t error  eta(T)  steps  rate_error(T)  rate_max_error"
+                "  rate_eta(T)   (rates w.r.t. dt between consecutive runs)\n")
+        for i, r in enumerate(rows):
+            rates = [float("nan")]*3
+            if i > 0:
+                q = np.log(rows[i-1]["dt"]/r["dt"])
+                for j, key in enumerate(("err_T", "err_max", "eta_T")):
+                    if rows[i-1][key] > 0 and r[key] > 0:
+                        rates[j] = np.log(rows[i-1][key]/r[key])/q
+            f.write(f"{r['dt']:.6g}  {r['err_T']:.4e}  {r['err_max']:.4e}  {r['eta_T']:.4e}"
+                    f"  {r['steps']}  {rates[0]:.2f}  {rates[1]:.2f}  {rates[2]:.2f}\n")
+    print(f"wrote {out}")
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    dt = np.array([r["dt"] for r in rows])
+    e = np.array([r["err_T"] for r in rows])
+    fig, ax = plt.subplots(figsize=(4.6, 3.6))
+    ax.loglog(dt, e, "o-", label="error at $T$")
+    ax.loglog(dt, [r["err_max"] for r in rows], "v:", label=r"$\max_t$ error")
+    ax.loglog(dt, [r["eta_T"] for r in rows], "s--", label=r"$\eta$ at $T$")
+    ax.loglog(dt, e[-1]*(dt/dt[-1])**2, ":", color="gray", lw=0.8, label="slope 2")
+    ax.set_xlabel(r"$\Delta t$"); ax.legend(); ax.grid(True, alpha=0.3)
+    ax.set_title(args.name)
+    fig.tight_layout()
+    out = os.path.join(args.outdir, f"{args.name}_temporal.{args.format}")
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    print(f"wrote {out}")
+
+
 # ---------------------------------------------------------------------------
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
@@ -415,6 +473,7 @@ def main():
     if runs:
         plot_tables(args, runs)
         spatial_summary(args, runs)
+        temporal_summary(args, runs)
         res = [(label, tab["_results"]) for label, tab in runs if "_results" in tab]
         if res:
             out = os.path.join(args.outdir, f"{args.name}_results.txt")

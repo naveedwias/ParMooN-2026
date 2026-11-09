@@ -119,6 +119,10 @@ namespace tnse_aaj_smooth
 {
 #include "NSE_2D/TNSE_AAJ_smooth.h"
 }
+namespace tnse_polynomial_in_space
+{
+#include "NSE_2D/TNSE_polynomial_in_space.h"
+}
 
 namespace tnse_aaj_layers
 {
@@ -776,6 +780,20 @@ case 7:
     tnse_aaj_layers::ExampleFile();
     break;
 
+  case 28: // transient verification: u in P2, p in P1, time-dependent Dirichlet data
+    exact_solution.push_back( tnse_polynomial_in_space::ExactU1 );
+    exact_solution.push_back( tnse_polynomial_in_space::ExactU2 );
+    exact_solution.push_back( tnse_polynomial_in_space::ExactP );
+    boundary_conditions.push_back( tnse_polynomial_in_space::BoundCondition );
+    boundary_conditions.push_back( tnse_polynomial_in_space::BoundCondition );
+    boundary_conditions.push_back( BoundConditionNoBoundCondition );
+    boundary_data.push_back( tnse_polynomial_in_space::U1BoundValue );
+    boundary_data.push_back( tnse_polynomial_in_space::U2BoundValue );
+    boundary_data.push_back( BoundaryValueHomogenous );
+    problem_coefficients = tnse_polynomial_in_space::LinCoeffs;
+    tnse_polynomial_in_space::ExampleFile();
+    break;
+
   case 25: // BDF2-IMEX / CIP / Scott-Vogelius, smooth solution
     exact_solution.push_back( bdf2imex_smooth::ExactU1 );
     exact_solution.push_back( bdf2imex_smooth::ExactU2 );
@@ -872,6 +890,7 @@ double Example_NSE2D::get_nu() const
   case 25:
   case 26:
   case 27:
+  case 28:
     {
       nu = this->example_database["reynolds_number"];
       nu = 1./nu;

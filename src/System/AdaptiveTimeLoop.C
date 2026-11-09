@@ -40,7 +40,7 @@ AdaptiveTimeLoop::AdaptiveTimeLoop(TDomain& dom, const ParameterDatabase& param_
   write_ps = param_db.contains("output_write_ps")
              ? (bool) param_db["output_write_ps"] : false;
   system = factory();
-  integrator.set_time(system ? integrator.get_time() : 0.);
+  system->initialize();
   next_output = integrator.get_time() + output_every;
   output_index = 0;
   system->output(output_index++); // initial condition
@@ -128,6 +128,9 @@ void AdaptiveTimeLoop::run()
       auto state = system->record_state();
       int n_derefined = domain.RefineAndCoarsen(marks_refine, marks_coarsen,
                                                 initial_level);
+      // the system is rebuilt even if no cell changed: RefineAndCoarsen
+      // recreates the collection of the finest level, so the old system may
+      // refer to a deleted collection
       std::unique_ptr<AdaptiveTimeSystem> new_system = factory();
       Output::print("adaptive: ", n_marked, " marked, ", n_derefined,
                     " parents derefined, new mesh has ",

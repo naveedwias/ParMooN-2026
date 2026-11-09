@@ -14,7 +14,6 @@ TimeNavierStokesSPG::TimeNavierStokesSPG(const TDomain& domain,
   const ParameterDatabase& param_db, const Example_NSE2D& example)
  : ns(domain, param_db, example),
    M(BlockFEMatrix::NSE2D_Type14(ns.get_velocity_space(), ns.get_pressure_space())),
-   M_galerkin(BlockFEMatrix::NSE2D_Type14(ns.get_velocity_space(), ns.get_pressure_space())),
    S(BlockFEMatrix::NSE2D_Type14(ns.get_velocity_space(), ns.get_pressure_space())),
    ud(ns.get_solution()), ud_old(ns.get_solution()), u_saved(ns.get_solution()),
    ud_saved(ns.get_solution()), u_pred(ns.get_solution()), rhs(ns.get_rhs()),
@@ -25,19 +24,22 @@ TimeNavierStokesSPG::TimeNavierStokesSPG(const TDomain& domain,
   n_active_u = ns.get_velocity_space()->get_n_active();
   ud.reset();
   ud_old.reset();
-  // plain velocity mass matrix (galerkin) for the L2 norm
-  ParameterDatabase db_g(db);
-  db_g["space_discretization_type"] = "galerkin";
-  assemble_mass(M_galerkin, db_g);
   nonlin_tol = db["nonlinloop_epsilon"];
   maxit = db["nonlinloop_maxit"];
   ud_fct.reset(new TFEVectFunct2D(ns.get_velocity_space(), "dt_u", ud.get_entries(), 2));
   ns.add_to_output(ud_fct.get());
+  t = db["time_start"];
+}
+
+void TimeNavierStokesSPG::initialize()
+{
   // initial condition and (Ud^0, P^0)
   t = db["time_start"];
   TDatabase::TimeDB->CURRENTTIME = t;
+  const Example_NSE2D& example = ns.get_example();
   ns.get_velocity().GetComponent(0)->Interpolate(example.get_exact(0));
   ns.get_velocity().GetComponent(1)->Interpolate(example.get_exact(1));
+  set_dirichlet_values(t, ns.get_solution());
   initial_time_derivative(t);
 }
 
@@ -84,24 +86,57 @@ void TimeNavierStokesSPG::assemble_mass(BlockFEMatrix& Mat, const ParameterDatab
              bc, bd, la, false);
 }
 
+// L2 norm of the velocity part by quadrature. (An assembled mass matrix is
+// not usable here: its Dirichlet rows are identity rows, which weight the
+// boundary values with 1 instead of O(h^2), and the Galerkin mass routine
+// of ParMooN writes the second component into a different block than the
+// SUPG/PSPG layout used for M.)
 double TimeNavierStokesSPG::l2_norm_velocity(const BlockVector& v)
 {
-  BlockVector Mv(v);
-  Mv.reset();
-  M_galerkin.apply(v, Mv);
+  auto space = ns.get_velocity_space();
   double s = 0.;
-  for(size_t i = 0; i < 2*n_u; ++i)
-    s += Mv.get_entries()[i]*v.get_entries()[i];
-  return std::sqrt(std::abs(s));
+  for(int c = 0; c < 2; ++c)
+  {
+    TFEFunction2D f(space, "e", const_cast<double*>(v.get_entries()) + c*n_u);
+    double n = f.get_L2_norm();
+    s += n*n;
+  }
+  return std::sqrt(s);
 }
 
-// zero the Dirichlet entries of the velocity blocks of a vector (the
-// boundary data of the examples do not depend on time)
+// zero the Dirichlet entries of the velocity blocks of a vector
 void TimeNavierStokesSPG::zero_velocity_dirichlet(BlockVector& v)
 {
   for(int c = 0; c < 2; ++c)
     for(size_t i = n_active_u; i < n_u; ++i)
       v.get_entries()[c*n_u + i] = 0.;
+}
+
+void TimeNavierStokesSPG::set_dirichlet_values(double time, BlockVector& v)
+{
+  const double t_save = TDatabase::TimeDB->CURRENTTIME;
+  TDatabase::TimeDB->CURRENTTIME = time;
+  auto space = ns.get_velocity_space();
+  for(int c = 0; c < 2; ++c)
+  {
+    TFEFunction2D comp(space, "bd", v.get_entries() + c*n_u);
+    comp.SetDirichletBC(space->get_boundary_condition(),
+                        ns.get_example().get_bd(c));
+  }
+  TDatabase::TimeDB->CURRENTTIME = t_save;
+}
+
+void TimeNavierStokesSPG::set_dirichlet_time_derivative(double time,
+                                                        BlockVector& v)
+{
+  const double eps = 1e-5*std::max(1., std::abs(time));
+  BlockVector gp(v), gm(v);
+  set_dirichlet_values(time + eps, gp);
+  set_dirichlet_values(time - eps, gm);
+  for(int c = 0; c < 2; ++c)
+    for(size_t i = n_active_u; i < n_u; ++i)
+      v.get_entries()[c*n_u + i] = (gp.get_entries()[c*n_u + i]
+                                    - gm.get_entries()[c*n_u + i])/(2.*eps);
 }
 
 // (Ud^0, P^0) from the semidiscrete problem at t = 0 with U = U^0
@@ -123,13 +158,16 @@ void TimeNavierStokesSPG::initial_time_derivative(double time)
     x.get_entries()[2*n_u + i] = 0.;
   rhs = ns.get_rhs();
   ns.get_matrix().apply_scaled_add(x, rhs, -1.);
-  zero_velocity_dirichlet(rhs);
+  // Dirichlet rows: the time derivative of the boundary data (zero for
+  // time-independent data); the interior rows couple to it through M
+  set_dirichlet_time_derivative(time, rhs);
   BlockVector y(ns.get_solution());
   y.reset();
+  y.copy_nonactive(rhs);
   solver.solve(S, rhs, y);
   for(size_t i = 0; i < 2*n_u; ++i)
     ud.get_entries()[i] = y.get_entries()[i];
-  zero_velocity_dirichlet(ud);
+  set_dirichlet_time_derivative(time, ud);
   for(size_t i = 0; i < n_p; ++i)
     ns.get_solution().get_entries()[2*n_u + i] = y.get_entries()[2*n_u + i];
   project_pressure();
@@ -208,12 +246,17 @@ void TimeNavierStokesSPG::tr_step(double time, double k)
     project_pressure();
     n_picard++;
   }
-  // Ud^{n+1} = 2/k (U^{n+1} - U^n) - Ud^n
+  // Ud^{n+1} = 2/k (U^{n+1} - U^n) - Ud^n on the free dofs. On the Dirichlet
+  // dofs the derivative of the data is used: setting it to zero is only
+  // correct for time-independent data, and the trapezoidal recurrence would
+  // carry its O(k^2) error on with alternating sign into the interior rows of
+  // the following steps (5 times larger global error on the verification
+  // example 28 at k = 0.025)
   for(size_t i = 0; i < 2*n_u; ++i)
     ud.get_entries()[i] = 2./k*(sol.get_entries()[i] - u_saved.get_entries()[i])
                           - ud_saved.get_entries()[i];
-  zero_velocity_dirichlet(ud);
   t = time + k;
+  set_dirichlet_time_derivative(t, ud);
 }
 
 double TimeNavierStokesSPG::predictor_difference_norm()
@@ -224,14 +267,22 @@ double TimeNavierStokesSPG::predictor_difference_norm()
   return l2_norm_velocity(e);
 }
 
-void TimeNavierStokesSPG::average_with_saved()
+void TimeNavierStokesSPG::average_with_saved(double t_mid)
 {
+  // velocity, pressure (the pressure enters the estimator and the output) and
+  // the time derivative are averaged; the averaged state belongs to t_mid
   BlockVector& sol = ns.get_solution();
-  for(size_t i = 0; i < 2*n_u; ++i)
-  {
+  for(size_t i = 0; i < sol.length(); ++i)
     sol.get_entries()[i] = 0.5*(sol.get_entries()[i] + u_saved.get_entries()[i]);
+  for(size_t i = 0; i < 2*n_u; ++i)
     ud.get_entries()[i] = 0.5*(ud.get_entries()[i] + ud_saved.get_entries()[i]);
-  }
+  t = t_mid;
+  // the mean of the boundary values at t^n and t^{n+1} is not the boundary
+  // value at t_mid (O(k^2) off for time-dependent data); the next step would
+  // force the difference into the trapezoidal derivative as O(k^2)/k and the
+  // recurrence would carry it on with alternating sign
+  set_dirichlet_values(t, sol);
+  set_dirichlet_time_derivative(t, ud);
 }
 
 void TimeNavierStokesSPG::shift_derivative()
@@ -285,10 +336,8 @@ void TimeNavierStokesSPG::apply_state(const std::vector<SolutionTransfer::Snapsh
   // from the interpolation of the old mesh (see TimeConvectionDiffusionTR::
   // apply_state for why this matters)
   TDatabase::TimeDB->CURRENTTIME = t;
-  ns.assemble_linear_terms();
-  ns.get_solution().copy_nonactive(ns.get_rhs());
-  zero_velocity_dirichlet(ud);
-  zero_velocity_dirichlet(ud_old);
+  set_dirichlet_values(t, ns.get_solution());
+  set_dirichlet_time_derivative(t, ud);
   u_saved = ns.get_solution();
   ud_saved = ud;
   u_pred = ns.get_solution();

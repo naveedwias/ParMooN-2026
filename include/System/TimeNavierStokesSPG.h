@@ -26,18 +26,20 @@
 class TimeNavierStokesSPG : public AdaptiveTimeSystem
 {
   public:
-    /// @brief system on the finest grid; velocity = interpolated exact
-    /// solution at time_start, (Ud^0, P^0) from the semidiscrete problem
+    /// @brief system on the finest grid of the domain; initialize() sets the
+    /// velocity to the interpolated exact solution at time_start and computes
+    /// (Ud^0, P^0) from the semidiscrete problem
     TimeNavierStokesSPG(const TDomain& domain, const ParameterDatabase& db,
                         const Example_NSE2D& example);
 
+    void initialize() override;
     // TrapezoidalAB2_System
     void save_state() override;
     void restore_state() override;
     void predict(double k, double r) override;
     void tr_step(double t, double k) override;
     double predictor_difference_norm() override;
-    void average_with_saved() override;
+    void average_with_saved(double t_mid) override;
     void shift_derivative() override;
     // AdaptiveTimeSystem
     void estimate(ErrorEstimator<2>& estimator) override;
@@ -58,7 +60,7 @@ class TimeNavierStokesSPG : public AdaptiveTimeSystem
 
   protected:
     NavierStokes<2> ns;
-    BlockFEMatrix M, M_galerkin, S;
+    BlockFEMatrix M, S;
     BlockVector ud, ud_old, u_saved, ud_saved, u_pred, rhs;
     std::unique_ptr<TFEVectFunct2D> ud_fct;
     Solver<BlockFEMatrix, BlockVector> solver;
@@ -71,6 +73,12 @@ class TimeNavierStokesSPG : public AdaptiveTimeSystem
     void assemble_mass(BlockFEMatrix& Mat, const ParameterDatabase& la_db);
     double l2_norm_velocity(const BlockVector& v);
     void zero_velocity_dirichlet(BlockVector& v);
+    /// @brief velocity Dirichlet entries of v <- boundary data at 'time'
+    void set_dirichlet_values(double time, BlockVector& v);
+    /// @brief velocity Dirichlet entries of v <- time derivative of the
+    /// boundary data at 'time' (central difference quotient, exact zero for
+    /// time-independent data)
+    void set_dirichlet_time_derivative(double time, BlockVector& v);
     void initial_time_derivative(double time);
     void project_pressure();
 };

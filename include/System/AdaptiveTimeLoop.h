@@ -32,6 +32,10 @@
 class AdaptiveTimeSystem : public TrapezoidalAB2_System
 {
   public:
+    /// @brief initial condition and initial time derivative at time_start;
+    /// called by the loop for the first system only (systems created after a
+    /// mesh change get their state from apply_state/copy_time_state)
+    virtual void initialize() = 0;
     /// @brief estimate the error with the given estimator (the system passes
     /// its solution and discrete time derivative in the way the estimator
     /// expects)
@@ -66,8 +70,7 @@ class AdaptiveTimeLoop
     AdaptiveTimeLoop(TDomain& domain, const ParameterDatabase& db,
                      ErrorEstimator<2>& estimator, SystemFactory factory);
 
-    /// @brief run until the final time; the initial system must have been
-    /// set up (initial condition, initial time derivative) by the factory
+    /// @brief run until the final time
     void run();
 
     /// @brief the table (one line per accepted step)
