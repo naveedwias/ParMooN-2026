@@ -25,6 +25,7 @@
 #include "TrapezoidalAB2.h"
 #include <functional>
 #include <memory>
+#include <fstream>
 #include <sstream>
 #include <vector>
 
@@ -40,8 +41,8 @@ class AdaptiveTimeSystem : public TrapezoidalAB2_System
     virtual int get_n_dofs() const = 0;
     /// @brief all data needed on a new mesh (u, d, d_old, ...), recorded by
     /// SolutionTransfer before the mesh changes
-    virtual std::vector<SolutionTransfer::NodeValueMap> record_state() const = 0;
-    virtual void apply_state(const std::vector<SolutionTransfer::NodeValueMap>& maps) = 0;
+    virtual std::vector<SolutionTransfer::Snapshot> record_state() const = 0;
+    virtual void apply_state(const std::vector<SolutionTransfer::Snapshot>& maps) = 0;
     /// @brief copy the time integration state from the system on the old mesh
     virtual void copy_time_state(const AdaptiveTimeSystem& old) = 0;
     /// @brief error in the problem's norm against the exact solution, or a
@@ -82,6 +83,7 @@ class AdaptiveTimeLoop
     TrapezoidalAB2 integrator;
     std::unique_ptr<AdaptiveTimeSystem> system;
     std::ostringstream table;
+    std::ofstream table_file;
     bool adaptive, coarsening, write_ps;
     double tol1, tol2, output_every, next_output;
     int initial_level, output_index;

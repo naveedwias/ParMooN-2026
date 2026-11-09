@@ -257,9 +257,9 @@ const TCollection* TimeNavierStokesSPG::get_collection() const
   return ns.get_velocity_space()->GetCollection();
 }
 
-std::vector<SolutionTransfer::NodeValueMap> TimeNavierStokesSPG::record_state() const
+std::vector<SolutionTransfer::Snapshot> TimeNavierStokesSPG::record_state() const
 {
-  std::vector<SolutionTransfer::NodeValueMap> maps;
+  std::vector<SolutionTransfer::Snapshot> maps;
   auto add = [&](const TFEVectFunct2D& f)
   { auto m = SolutionTransfer::record(f); maps.insert(maps.end(), m.begin(), m.end()); };
   add(ns.get_velocity());
@@ -271,7 +271,7 @@ std::vector<SolutionTransfer::NodeValueMap> TimeNavierStokesSPG::record_state() 
   return maps; // u1 u2 p d1 d2 do1 do2
 }
 
-void TimeNavierStokesSPG::apply_state(const std::vector<SolutionTransfer::NodeValueMap>& maps)
+void TimeNavierStokesSPG::apply_state(const std::vector<SolutionTransfer::Snapshot>& maps)
 {
   if(maps.size() != 7)
     ErrThrow("TimeNavierStokesSPG::apply_state: seven maps expected");
@@ -281,6 +281,14 @@ void TimeNavierStokesSPG::apply_state(const std::vector<SolutionTransfer::NodeVa
   TFEVectFunct2D udo_fct(ns.get_velocity_space(), "udo", ud_old.get_entries(), 2);
   SolutionTransfer::apply(ud_fct, {maps[3], maps[4]});
   SolutionTransfer::apply(udo_fct, {maps[5], maps[6]});
+  // the Dirichlet values of the new mesh come from the boundary data, not
+  // from the interpolation of the old mesh (see TimeConvectionDiffusionTR::
+  // apply_state for why this matters)
+  TDatabase::TimeDB->CURRENTTIME = t;
+  ns.assemble_linear_terms();
+  ns.get_solution().copy_nonactive(ns.get_rhs());
+  zero_velocity_dirichlet(ud);
+  zero_velocity_dirichlet(ud_old);
   u_saved = ns.get_solution();
   ud_saved = ud;
   u_pred = ns.get_solution();

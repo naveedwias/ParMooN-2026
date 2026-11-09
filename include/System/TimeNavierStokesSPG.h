@@ -43,8 +43,8 @@ class TimeNavierStokesSPG : public AdaptiveTimeSystem
     void estimate(ErrorEstimator<2>& estimator) override;
     const TCollection* get_collection() const override;
     int get_n_dofs() const override { return (int) ns.get_size(); }
-    std::vector<SolutionTransfer::NodeValueMap> record_state() const override;
-    void apply_state(const std::vector<SolutionTransfer::NodeValueMap>& maps) override;
+    std::vector<SolutionTransfer::Snapshot> record_state() const override;
+    void apply_state(const std::vector<SolutionTransfer::Snapshot>& maps) override;
     void copy_time_state(const AdaptiveTimeSystem& old) override;
     double exact_error() const override { return last_error; }
     /// @brief vtk output through NavierStokes (velocity, pressure) plus the

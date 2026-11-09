@@ -52,6 +52,16 @@ TimeConvectionDiffusionTR::TimeConvectionDiffusionTR(
   t = db["time_start"];
   TDatabase::TimeDB->CURRENTTIME = t;
   u_fct->Interpolate(example.get_initial_cond(0));
+  // the Dirichlet degrees of freedom of the initial value are set to the
+  // boundary data, not to u_0: for data which are incompatible at t = 0
+  // (u_0 = 0 and g = 1 on a part of the boundary, as in Example 5 of de
+  // Frutos et al. 2014) interpolating u_0 everywhere makes the boundary
+  // values jump from 0 to g within the first time step, so the discrete
+  // time derivative of the first step is O(1/k) and the error estimate and
+  // the step size control are meaningless. assemble() writes the boundary
+  // data into the non-active rows of the right-hand side.
+  assemble(t);
+  u.copy_nonactive(rhs);
   compute_time_derivative(t);
   d_old = d;
 }
@@ -177,7 +187,7 @@ const TCollection* TimeConvectionDiffusionTR::get_collection() const
   return space->GetCollection();
 }
 
-std::vector<SolutionTransfer::NodeValueMap>
+std::vector<SolutionTransfer::Snapshot>
 TimeConvectionDiffusionTR::record_state() const
 {
   TFEFunction2D dold_fct(space, "d_old", const_cast<double*>(d_old.get_entries()));
@@ -186,7 +196,7 @@ TimeConvectionDiffusionTR::record_state() const
 }
 
 void TimeConvectionDiffusionTR::apply_state(
-  const std::vector<SolutionTransfer::NodeValueMap>& maps)
+  const std::vector<SolutionTransfer::Snapshot>& maps)
 {
   if(maps.size() != 3)
     ErrThrow("TimeConvectionDiffusionTR::apply_state: three maps expected");
@@ -194,6 +204,18 @@ void TimeConvectionDiffusionTR::apply_state(
   SolutionTransfer::apply(*d_fct, maps[1]);
   TFEFunction2D dold_fct(space, "d_old", d_old.get_entries());
   SolutionTransfer::apply(dold_fct, maps[2]);
+  // The Dirichlet degrees of freedom of the new mesh must carry the boundary
+  // data, not the values interpolated from the old mesh. A new boundary node
+  // created by refinement inherits the mean of its parent's values, which
+  // differs from g wherever g is not affine on the parent edge (in particular
+  // next to a discontinuity of g). The next time step would then force this
+  // node from the interpolated value to g within one step and produce a
+  // discrete time derivative of size O(1/k) in the neighbouring cells.
+  assemble(t);
+  u.copy_nonactive(rhs);
+  size_t n_active = space->get_n_active();
+  for(size_t i = n_active; i < d.length(); ++i)
+    d.get_entries()[i] = d_old.get_entries()[i] = 0.; // time-independent data
   u_saved = u;
   d_saved = d;
   u_pred = u;

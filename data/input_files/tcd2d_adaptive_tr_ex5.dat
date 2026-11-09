@@ -31,8 +31,8 @@ trab2_dt0: 1.0e-10
 trab2_dt_max: 0.1
 adaptive_output_time: 0.2
 adaptive_coarsening: true
-adaptive_tol1: 2.0e-4
-adaptive_tol2: 1.0e-5
+adaptive_tol1: 1.0e-3
+adaptive_tol2: 5.0e-5
 tcd_estimator_mu0: 0.0
 adaptive_max_cell_level: 14
 tcd_write_table: tcd2d_adaptive_tr_ex5_table.txt

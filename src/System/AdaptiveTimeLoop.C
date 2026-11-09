@@ -46,6 +46,22 @@ AdaptiveTimeLoop::AdaptiveTimeLoop(TDomain& dom, const ParameterDatabase& param_
   system->output(output_index++); // initial condition
   table << "# time  dt  cells  dofs  eta  error  effectivity  n_marked_refine"
            "  n_marked_coarsen\n";
+  // the table is written and flushed after every accepted step, so that an
+  // interrupted run still leaves its table behind
+  std::string file;
+  for(const char* key : {"adaptive_table_file", "tcd_write_table",
+                         "tnse_write_table"})
+  {
+    if(param_db.contains(key))
+      file = param_db[key].value_as_string();
+    if(!file.empty())
+      break;
+  }
+  if(!file.empty())
+  {
+    table_file.open(file);
+    table_file << table.str() << std::flush;
+  }
 }
 
 void AdaptiveTimeLoop::run()
@@ -84,6 +100,14 @@ void AdaptiveTimeLoop::run()
           << n_cells << " " << system->get_n_dofs() << " " << eta << " " << error
           << " " << std::fixed << std::setprecision(4) << eff << " " << n_marked
           << " " << n_coarsen << "\n";
+    if(table_file.is_open())
+    {
+      table_file << std::scientific << std::setprecision(6) << t << " " << k_eff
+                 << " " << n_cells << " " << system->get_n_dofs() << " " << eta
+                 << " " << error << " " << std::fixed << std::setprecision(4)
+                 << eff << " " << n_marked << " " << n_coarsen << "\n"
+                 << std::flush;
+    }
 
     // --- output ----------------------------------------------------------------
     if(t >= next_output - 1e-12)

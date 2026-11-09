@@ -46,11 +46,5 @@ int main(int argc, char* argv[])
   loop.run();
 
   Output::print("\n", loop.get_table());
-  std::string table_file = parmoon_db["tnse_write_table"];
-  if(!table_file.empty())
-  {
-    std::ofstream out(table_file);
-    out << loop.get_table();
-  }
   parmoon::parmoon_finalize();
 }

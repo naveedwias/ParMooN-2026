@@ -1,54 +1,70 @@
 // =============================================================================
 // Transfer of Lagrange finite element functions between two meshes of an
-// adaptive loop (refinement, coarsening, conforming closure).
+// adaptive loop (refinement, coarsening and conforming closure).
 //
-// Before the mesh is changed, record() evaluates the function at every nodal
-// point the next mesh can have: the nodal points of the cell itself, of its
-// regularly refined children, of the children of all three bisections, and
-// the same for the parent cell (the conforming closure rebuilds closure cells
-// from their parent). The values are stored by (rounded) coordinates. After
-// the mesh has been changed, apply() fills a function on the new mesh from
-// the stored values. Coarsened cells only need values at nodes which were
-// nodes of their children, so no point search on the old mesh is needed after
-// it has been changed (its cells may already be deleted).
+//   record()  takes a snapshot of a function BEFORE the mesh is changed: the
+//             geometry of every cell of the current mesh and the local values
+//             of the function on it. The snapshot is self-contained, so the
+//             cells of the old mesh may be deleted afterwards (they are, for
+//             the parts of the mesh which are coarsened).
+//   apply()   fills a function on the NEW mesh: every nodal point of the new
+//             mesh is located in the old mesh and the local polynomial of the
+//             old cell is evaluated there (a uniform bucket grid makes the
+//             point location O(1) per point).
 //
-// Works for continuous and discontinuous Lagrange elements of any order on
-// affine triangles; the nodal points must be point evaluations (Lagrange
-// nodal functionals).
+// This is a true mesh-to-mesh interpolation and does not assume any relation
+// between the two meshes, in particular no match of nodal points, so it
+// survives a conforming closure which bisects a cell more than once. For
+// Lagrange elements on affine triangles (the nodal functionals must be point
+// evaluations) the result is the nodal interpolant of the old function; on
+// cells which are not refined it reproduces the function exactly.
 // =============================================================================
 #ifndef SOLUTIONTRANSFER_H
 #define SOLUTIONTRANSFER_H
 
 #include "FEFunction2D.h"
 #include "FEVectFunct2D.h"
-#include <map>
-#include <utility>
+#include <array>
+#include <memory>
 #include <vector>
+
+class BaseFunctions;
 
 class SolutionTransfer
 {
   public:
-    typedef std::pair<long long, long long> PointKey;
-    typedef std::map<PointKey, double> NodeValueMap;
+    /// @brief a self-contained copy of a scalar FE function on a mesh
+    class Snapshot
+    {
+      public:
+        /// @brief value at the point (x, y); the point is located in the
+        /// stored mesh (the nearest cell is used if it is outside)
+        double evaluate(double x, double y) const;
 
-    /// @brief rounded coordinates used as key (10^-9 resolution)
-    static PointKey key(double x, double y);
+        std::vector<std::array<double, 6>> vertices; //< x0 y0 x1 y1 x2 y2
+        std::vector<const BaseFunctions*> basis;     //< per cell
+        std::vector<std::vector<double>> values;     //< local values per cell
+        // uniform bucket grid over the bounding box
+        double x_min, y_min, dx, dy;
+        int nx, ny;
+        std::vector<std::vector<int>> buckets;
 
-    /// @brief record the values of a scalar function (call before the mesh
-    /// is changed); returns the map
-    static NodeValueMap record(const TFEFunction2D& u);
+        int find_cell(double x, double y) const;
+        int bucket_index(double x, double y) const;
+    };
 
-    /// @brief record all components of a vector function
-    static std::vector<NodeValueMap> record(const TFEVectFunct2D& u);
+    /// @brief snapshot of a scalar function (call before the mesh is changed)
+    static Snapshot record(const TFEFunction2D& u);
+    /// @brief one snapshot per component of a vector function
+    static std::vector<Snapshot> record(const TFEVectFunct2D& u);
 
-    /// @brief fill a function on the new mesh from recorded values; throws if
-    /// a nodal point of the new mesh has no recorded value
-    static void apply(TFEFunction2D& u, const NodeValueMap& values);
-    static void apply(TFEVectFunct2D& u, const std::vector<NodeValueMap>& values);
+    /// @brief fill a function on the new mesh from a snapshot
+    static void apply(TFEFunction2D& u, const Snapshot& snapshot);
+    static void apply(TFEVectFunct2D& u, const std::vector<Snapshot>& snapshots);
 
     /// @brief point in (affine) triangle test by barycentric coordinates
-    static bool point_in_triangle(const TBaseCell* cell, double x, double y,
-                                  double tol = 1e-9);
+    static bool point_in_triangle(const double* v, double x, double y,
+                                  double tol = 1e-10);
 };
 
 #endif // SOLUTIONTRANSFER_H
