@@ -138,6 +138,7 @@ void AdaptiveTimeLoop::run()
       new_system->copy_time_state(*system);
       new_system->apply_state(state);
       system = std::move(new_system);
+      integrator.restart_averaging();
     }
   }
   Output::print("TR-AB2: ", integrator.n_accepted_steps(), " accepted and ",

@@ -12,6 +12,20 @@
 //          rejected steps are repeated with the reduced step
 //   stabilization: every n* accepted steps u^{n+1} <- (u^{n+1}+u^n)/2,
 //          d^{n+1} <- (d^{n+1}+d^n)/2, t <- t - k/2, k_old <- k/2
+//          ('periodic', GGS 2008 and de Frutos et al. 2014), or the same only
+//          if the state has been perturbed since the last averaging, i.e.
+//          after the start and after mesh changes ('on_demand', see
+//          restart_averaging()).
+//
+// Why averaging: TR is A-stable but not L-stable; a component of the initial
+// value (or of a state interpolated to a new mesh) in a stiff mode, e.g. the
+// part of an interpolated velocity which is not discretely divergence-free,
+// is carried on with amplification factor ~ -1. The AB2 estimate then sees a
+// k-independent error, the step size can only grow slowly and with small
+// TOLT the control stalls. Averaging two consecutive states removes the
+// alternating component. Each averaging is a local O(k^2) perturbation, so
+// periodic averaging costs accuracy for smooth problems whose start is
+// consistent; 'on_demand' averages once after each perturbation.
 //
 // The class owns the time, the step sizes and the counters; the discrete
 // vectors (u, d, d_old and the saved previous values) are owned by a system
@@ -67,6 +81,10 @@ class TrapezoidalAB2
     double get_end_time() const { return t_end; }
     bool finished() const { return t >= t_end - 1e-12; }
 
+    /// @brief the state has been perturbed (e.g. transferred to a new mesh):
+    /// in 'on_demand' mode the next averaging (after n* steps) is enabled
+    void restart_averaging() { averaging_pending = true; }
+
     /** @brief advance the system by one accepted step (possibly after
      * rejections). Returns the error estimate of the accepted step; the
      * effective step length of the accepted step is get_previous_step()
@@ -77,7 +95,7 @@ class TrapezoidalAB2
     double t, t_end, k, k_old;
     double tolt, k_min, k_max, factor;
     int n_star, n_accepted, n_rejected, n_since_avg;
-    bool fixed_step, first_step;
+    bool fixed_step, first_step, periodic_averaging, averaging_pending;
 };
 
 #endif // TRAPEZOIDALAB2_H

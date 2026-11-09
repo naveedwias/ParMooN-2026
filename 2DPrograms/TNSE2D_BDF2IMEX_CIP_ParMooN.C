@@ -244,16 +244,20 @@ void assemble_blocks(NavierStokes<2>& ns, BlockFEMatrix& Mat, BlockVector* rhs,
              bd, la, false);
 }
 
-// L2 norm of the velocity part of a vector w.r.t. the mass matrix
-double l2_norm_velocity(const BlockFEMatrix& M, const BlockVector& v, size_t n_u)
+// L2 norm of the velocity part of a vector, by quadrature. (Not with the
+// assembled mass matrix: its Dirichlet rows act as identity rows, so nonzero
+// boundary values would be weighted with 1 instead of O(h^2).)
+double l2_norm_velocity(const std::shared_ptr<const TFESpace2D>& space,
+                        const BlockVector& v, size_t n_u)
 {
-  BlockVector Mv(v);
-  Mv.reset();
-  M.apply(v, Mv);
   double s = 0.;
-  for(size_t i = 0; i < 2*n_u; ++i)
-    s += Mv.get_entries()[i]*v.get_entries()[i];
-  return std::sqrt(std::abs(s));
+  for(int c = 0; c < 2; ++c)
+  {
+    TFEFunction2D f(space, "v", const_cast<double*>(v.get_entries()) + c*n_u);
+    double n = f.get_L2_norm();
+    s += n*n;
+  }
+  return std::sqrt(s);
 }
 
 int main(int argc, char* argv[])
@@ -465,7 +469,7 @@ int main(int argc, char* argv[])
     D = std::max(D, divu);
     if(step > 0)
       Ep2 += dt*l2p*l2p;
-    double un = l2_norm_velocity(M, ns.get_solution(), n_u);
+    double un = l2_norm_velocity(ns.get_velocity_space(), ns.get_solution(), n_u);
     max_u = std::max(max_u, un);
     TFEVectFunct2D b_fct(ns.get_velocity_space(), "b", b_vec.get_entries(), 2);
     table << step << " " << std::scientific << std::setprecision(6) << t << " "
@@ -537,8 +541,8 @@ int main(int argc, char* argv[])
     BlockVector e(u_old);
     e.scale(2.);
     e.add_scaled(u_oldold, -1.);
-    double F1 = std::pow(l2_norm_velocity(M, u_old, n_u), 2)
-                + std::pow(l2_norm_velocity(M, e, n_u), 2);
+    double F1 = std::pow(l2_norm_velocity(ns.get_velocity_space(), u_old, n_u), 2)
+                + std::pow(l2_norm_velocity(ns.get_velocity_space(), e, n_u), 2);
     b_vec = u_old;
     record(1, F1);
   }
@@ -579,8 +583,8 @@ int main(int argc, char* argv[])
     BlockVector e(ns.get_solution());
     e.scale(2.);
     e.add_scaled(u_old, -1.);
-    double F = std::pow(l2_norm_velocity(M, ns.get_solution(), n_u), 2)
-               + std::pow(l2_norm_velocity(M, e, n_u), 2);
+    double F = std::pow(l2_norm_velocity(ns.get_velocity_space(), ns.get_solution(), n_u), 2)
+               + std::pow(l2_norm_velocity(ns.get_velocity_space(), e, n_u), 2);
     record(step, F);
     u_oldold = u_old;
     u_old = ns.get_solution();

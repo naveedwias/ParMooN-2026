@@ -34,3 +34,5 @@ adaptive_output_time: 0.5
 tcd_estimator_mu0: 0.0
 tcd_write_table: ex4new_table.txt
 output_directory: vtk
+# averaging of the TR-AB2 integrator as in de Frutos et al. (2014)
+trab2_averaging: periodic

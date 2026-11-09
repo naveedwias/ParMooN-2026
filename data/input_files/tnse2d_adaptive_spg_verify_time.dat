@@ -34,3 +34,5 @@ trab2_dt_max: 0.02
 adaptive_mesh: false
 adaptive_output_time: 10.0
 tnse_write_table: tnse2d_adaptive_spg_verify_time_table.txt
+# averaging only after the start and after mesh changes (see TrapezoidalAB2.h)
+trab2_averaging: on_demand

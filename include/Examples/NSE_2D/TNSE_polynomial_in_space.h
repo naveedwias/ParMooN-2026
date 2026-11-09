@@ -104,3 +104,26 @@ void LinCoeffs(int n_points, const double *X, const double *Y,
     coeffs[i][6] = 0.;
   }
 }
+
+// right-hand side of the Stokes projection for the BDF2-IMEX driver (same
+// convention as BDF2IMEX_smooth.h): assembled with viscosity 1,
+// f_s = -Laplace(u) + grad p / nu with 1/nu = TDatabase::ParamDB->P1
+void StokesProjectionCoeffs(int n_points, const double *X, const double *Y,
+                            const double *const*, double **coeffs)
+{
+  const double inv_nu = TDatabase::ParamDB->P1;
+  double u1[4], u2[4], p[4];
+  for(int i = 0; i < n_points; i++)
+  {
+    ExactU1(X[i], Y[i], u1);
+    ExactU2(X[i], Y[i], u2);
+    ExactP(X[i], Y[i], p);
+    coeffs[i][0] = 1.;
+    coeffs[i][1] = -u1[3] + inv_nu*p[1];
+    coeffs[i][2] = -u2[3] + inv_nu*p[2];
+    coeffs[i][3] = 0.;
+    coeffs[i][4] = 0.;
+    coeffs[i][5] = 0.;
+    coeffs[i][6] = 0.;
+  }
+}

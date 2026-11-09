@@ -36,3 +36,5 @@ adaptive_tol2: 5.0e-5
 tcd_estimator_mu0: 0.0
 adaptive_max_cell_level: 14
 tcd_write_table: tcd2d_adaptive_tr_ex5_table.txt
+# averaging of the TR-AB2 integrator as in de Frutos et al. (2014)
+trab2_averaging: periodic

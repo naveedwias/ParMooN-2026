@@ -18,6 +18,11 @@ ParameterDatabase TrapezoidalAB2::default_database()
   db.add("trab2_factor", 0.85, "safety factor of the step size update", 0., 1.);
   db.add("trab2_averaging_steps", 10, "average every n* steps (0: off)",
          0, 1000000);
+  db.add("trab2_averaging", "on_demand", "on_demand: average n* steps after "
+         "the start and after mesh changes only (never worse than periodic in "
+         "the tests, fewer steps for smooth problems); periodic: every n* steps "
+         "as in Gresho et al. 2008 and de Frutos et al. 2014",
+         {"on_demand", "periodic"});
   return db;
 }
 
@@ -35,10 +40,13 @@ TrapezoidalAB2::TrapezoidalAB2(const ParameterDatabase& param_db)
   k_max = db["trab2_dt_max"];
   factor = db["trab2_factor"];
   n_star = db["trab2_averaging_steps"];
+  periodic_averaging = db["trab2_averaging"].is("periodic");
+  averaging_pending = true;
   n_accepted = n_rejected = n_since_avg = 0;
   first_step = true;
   Output::print<2>("TR-AB2: ", fixed_step ? "fixed step " : "adaptive, TOLT = ",
-                   fixed_step ? k : tolt, ", averaging every ", n_star, " steps");
+                   fixed_step ? k : tolt, ", averaging after ", n_star, " steps (",
+                   periodic_averaging ? "periodic" : "on demand", ")");
 }
 
 double TrapezoidalAB2::advance(TrapezoidalAB2_System& sys)
@@ -66,8 +74,10 @@ double TrapezoidalAB2::advance(TrapezoidalAB2_System& sys)
   n_since_avg++;
   t += k;
   double k_eff = k;
-  if(!fixed_step && n_star > 0 && n_since_avg >= n_star)
+  if(!fixed_step && n_star > 0 && n_since_avg >= n_star
+     && (periodic_averaging || averaging_pending))
   {
+    averaging_pending = false;
     t -= 0.5*k;
     sys.average_with_saved(t);
     k_eff = 0.5*k;

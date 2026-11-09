@@ -150,6 +150,8 @@ CoeffFct2D bdf2imex_stokes_projection_coeffs(int example)
     return bdf2imex_lake::StokesProjectionCoeffs;
   if(example == 27)
     return bdf2imex_shearlayer::StokesProjectionCoeffs;
+  if(example == 28)
+    return tnse_polynomial_in_space::StokesProjectionCoeffs;
   return bdf2imex_smooth::StokesProjectionCoeffs;
 }
 
