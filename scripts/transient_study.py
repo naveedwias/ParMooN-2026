@@ -169,6 +169,22 @@ def read_table(path):
     return tab
 
 
+def resolve_mesh_path(path, base):
+    """absolute path of a relative geo_file entry: relative to the current
+    directory, to the base input file, or to the repository (data/mesh/...);
+    None if it is a built-in mesh name or cannot be found"""
+    if os.path.isabs(path):
+        return path if os.path.exists(path) else None
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    candidates = [path, os.path.join(os.path.dirname(os.path.abspath(base)), path)]
+    if "data/mesh/" in path:
+        candidates.append(os.path.join(repo, path[path.index("data/mesh/"):]))
+    for c in candidates:
+        if os.path.exists(c):
+            return os.path.abspath(c)
+    return None
+
+
 def fmt_rate(x):
     """rate with two digits, '---' if there is no previous run or the rate is
     not defined (same mesh, zero error, ...)"""
@@ -485,8 +501,15 @@ def main():
                 # make relative geo_file paths work from the run directory
                 for i, ln in enumerate(lines):
                     m = re.match(r"^\s*geo_file\s*:\s*(.+)$", ln)
-                    if m and os.path.exists(m.group(1)):
-                        lines[i] = f"geo_file: {os.path.abspath(m.group(1))}"
+                    if m:
+                        geo = resolve_mesh_path(m.group(1).strip(), args.base)
+                        if geo is not None:
+                            lines[i] = f"geo_file: {geo}"
+                    # ParMooN does not create the vtk output directory
+                    m = re.match(r"^\s*output_directory\s*:\s*(.+)$", ln)
+                    if m:
+                        os.makedirs(os.path.join(run_dir, m.group(1).strip()),
+                                    exist_ok=True)
                 dat = os.path.join(run_dir, name + ".dat")
                 open(dat, "w").write("\n".join(lines) + "\n")
                 if args.dry_run:

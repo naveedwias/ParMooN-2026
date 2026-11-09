@@ -1,5 +1,5 @@
 [ ParMooN database: adaptive SUPG for evolutionary CD (de Frutos, Garcia-Archilla, John, Novo 2014) ]
-outfile: ex2new.out
+outfile: tcd2d_adaptive_tr_ex2.out
 boundary_file: Default_UnitSquare
 geo_file: TwoTriangles
 refinement_n_initial_steps: 5
@@ -9,7 +9,7 @@ example: 11
 verbosity: 1
 output_write_vtk: true
 output_compute_errors: true
-output_basename: ex2
+output_basename: fgjn_ex2
 space_discretization_type: supg
 diffusion_coefficient: 1.0e-3
 ANSATZ_ORDER: 1
@@ -29,7 +29,7 @@ trab2_dt0: 1.0e-10
 trab2_dt_max: 0.05
 adaptive_output_time: 0.5
 tcd_estimator_mu0: 1.0
-tcd_write_table: ex2new_table.txt
+tcd_write_table: tcd2d_adaptive_tr_ex2_table.txt
 output_directory: vtk
 # averaging of the TR-AB2 integrator as in de Frutos et al. (2014)
 trab2_averaging: periodic

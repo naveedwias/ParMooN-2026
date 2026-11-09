@@ -1,5 +1,5 @@
 [ transient SUPG/PSPG/grad-div Navier-Stokes, Example 1 (smooth) ]
-outfile: ex1new.out
+outfile: tnse2d_adaptive_spg_ex1.out
 boundary_file: Default_UnitSquare
 geo_file: TwoTriangles
 refinement_n_initial_steps: 5
@@ -9,7 +9,7 @@ example: 23
 verbosity: 2
 output_write_vtk: true
 output_compute_errors: true
-output_basename: ex1
+output_basename: tnse_ex1
 space_discretization_type: supg_pspg_graddiv
 spg_delta0: 0.5
 spg_mu0: 0.5
@@ -33,7 +33,7 @@ trab2_dt0: 1.0e-4
 trab2_dt_max: 0.02
 adaptive_mesh: false
 adaptive_output_time: 1.0
-tnse_write_table: ex1new_table.txt
+tnse_write_table: tnse2d_adaptive_spg_ex1_table.txt
 output_directory: vtk
 # averaging only after the start and after mesh changes (see TrapezoidalAB2.h)
 trab2_averaging: on_demand
