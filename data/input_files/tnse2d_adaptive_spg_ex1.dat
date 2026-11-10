@@ -1,4 +1,4 @@
-[ transient SUPG/PSPG/grad-div Navier-Stokes, Example 1 (smooth) ]
+[ transient SUPG/PSPG/grad-div Navier-Stokes, Example 1 of the manuscript (smooth solution), uniform mesh, equidistant time step ]
 outfile: tnse2d_adaptive_spg_ex1.out
 boundary_file: Default_UnitSquare
 geo_file: TwoTriangles
@@ -27,7 +27,7 @@ NSE_NONLINEAR_FORM: 0
 time_start: 0.0
 time_end: 2.0
 time_step_length: 1.0e-3
-trab2_adaptive: true
+trab2_adaptive: false
 trab2_tolt: 1.0e-5
 trab2_dt0: 1.0e-4
 trab2_dt_max: 0.02
@@ -35,5 +35,8 @@ adaptive_mesh: false
 adaptive_output_time: 1.0
 tnse_write_table: tnse2d_adaptive_spg_ex1_table.txt
 output_directory: vtk
-# averaging only after the start and after mesh changes (see TrapezoidalAB2.h)
-trab2_averaging: on_demand
+trab2_averaging: periodic
+# initial velocity: L2 projection of u_0 (manuscript, Section 2)
+tnse_initial_value: l2_projection
+# lower bound dt >= alpha min delta_K (adaptive step control only)
+tnse_dt_alpha: 0.5

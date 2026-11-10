@@ -49,6 +49,10 @@ class TimeNavierStokesSPG : public AdaptiveTimeSystem
     void apply_state(const std::vector<SolutionTransfer::Snapshot>& maps) override;
     void copy_time_state(const AdaptiveTimeSystem& old) override;
     double exact_error() const override { return last_error; }
+    double estimate_time() const override { return last_estimate_t; }
+    /// @brief alpha min_K delta_K (tnse_dt_alpha), the lower bound of the step
+    /// size for residual-based pressure stabilization (manuscript, Section 4)
+    double minimal_step() const override { return dt_alpha*min_delta; }
     /// @brief L2(u), H1(u) (seminorm), L2(div u), L2(p) at the current time,
     /// the contributions of the estimator (eta_res, eta_div, eta_F, eta_delta,
     /// eta_mu) and the parts of the error in the SPG norm of the last estimate
@@ -70,6 +74,17 @@ class TimeNavierStokesSPG : public AdaptiveTimeSystem
     Solver<BlockFEMatrix, BlockVector> solver;
     ParameterDatabase db;
     double t, last_error, nonlin_tol;
+    double last_estimate_t, dt_alpha, min_delta;
+    // state before the last averaging step: the estimator is evaluated with
+    // the non-averaged pair (U^{n+1}, Ud^{n+1}), which solves the discrete
+    // auxiliary problem; the averaged pair does not (manuscript, Remark on
+    // the mesh transfer)
+    BlockVector est_sol, est_ud;
+    double est_t;
+    bool has_est;
+    std::vector<std::pair<std::string, double>> cached_columns;
+    std::vector<std::pair<std::string, double>> compute_error_columns();
+    void l2_projection_of_initial_velocity();
     /// contributions of the last estimate (name, value)
     std::vector<std::pair<std::string, double>> last_contributions;
     unsigned int maxit;

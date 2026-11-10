@@ -20,11 +20,16 @@ int main(int argc, char* argv[])
 {
   ParameterDatabase defaults("TNSE2D adaptive SPG defaults");
   defaults.add("tnse_write_table", "", "file name for the table");
-  defaults.add("tnse_initial_value", "projection", "initial velocity: "
-               "projection (stabilized equations at time_start with the exact "
-               "time derivative; consistent with the discrete constraint) or "
-               "interpolation (nodal interpolant of u(time_start))",
-               {"projection", "interpolation"});
+  defaults.add("tnse_initial_value", "l2_projection", "initial velocity: "
+               "l2_projection (L2 projection of u(time_start), as in the "
+               "manuscript), consistent_projection (stabilized equations at "
+               "time_start with the exact time derivative; consistent with the "
+               "discrete constraint) or interpolation (nodal interpolant)",
+               {"l2_projection", "consistent_projection", "interpolation"});
+  defaults.add("tnse_dt_alpha", 0.5, "lower bound dt >= alpha min_K delta_K of "
+               "the time step in the step size control (residual-based pressure "
+               "stabilization, manuscript Section 4); 0 switches it off; the "
+               "constant has to be calibrated", 0., 1.e10);
   defaults.merge(NavierStokes<2>::default_nse_database(), true);
   defaults.merge(NSE_SPG_ErrorEstimator::default_spg_estimator_database(), true);
   defaults.merge(AdaptiveTimeLoop::default_database(), true);

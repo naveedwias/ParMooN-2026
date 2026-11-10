@@ -58,6 +58,10 @@ class TrapezoidalAB2_System
     virtual void average_with_saved(double t_mid) = 0;
     /// @brief d_old <- d_saved (after an accepted step)
     virtual void shift_derivative() = 0;
+    /// @brief lower bound of the step size required by the discretization
+    /// (e.g. dt >= alpha min_K delta_K for residual-based pressure
+    /// stabilization); 0 if there is none. Applied in the adaptive mode only.
+    virtual double minimal_step() const { return 0.; }
 };
 
 class TrapezoidalAB2

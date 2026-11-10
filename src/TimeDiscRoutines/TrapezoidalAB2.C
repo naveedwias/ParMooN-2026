@@ -18,11 +18,10 @@ ParameterDatabase TrapezoidalAB2::default_database()
   db.add("trab2_factor", 0.85, "safety factor of the step size update", 0., 1.);
   db.add("trab2_averaging_steps", 10, "average every n* steps (0: off)",
          0, 1000000);
-  db.add("trab2_averaging", "on_demand", "on_demand: average n* steps after "
-         "the start and after mesh changes only (never worse than periodic in "
-         "the tests, fewer steps for smooth problems); periodic: every n* steps "
-         "as in Gresho et al. 2008 and de Frutos et al. 2014",
-         {"on_demand", "periodic"});
+  db.add("trab2_averaging", "periodic", "periodic: every n* steps as in "
+         "Gresho et al. 2008 and de Frutos et al. 2014; on_demand: n* steps "
+         "after the start and after mesh changes only (a variant, not from the "
+         "literature)", {"periodic", "on_demand"});
   return db;
 }
 
@@ -52,6 +51,14 @@ TrapezoidalAB2::TrapezoidalAB2(const ParameterDatabase& param_db)
 double TrapezoidalAB2::advance(TrapezoidalAB2_System& sys)
 {
   double err = 0.;
+  // lower bound of the step size from the discretization (adaptive mode)
+  const double k_low = fixed_step ? 0. : std::max(k_min, sys.minimal_step());
+  if(!fixed_step && k < k_low)
+    k = k_low;
+  if(fixed_step && sys.minimal_step() > 0. && k < sys.minimal_step()
+     && n_accepted == 0)
+    Output::warn("TR-AB2", "fixed step ", k, " is below the lower bound ",
+                 sys.minimal_step(), " of the discretization");
   while(true)
   {
     k = std::min(k, t_end - t);
@@ -60,11 +67,11 @@ double TrapezoidalAB2::advance(TrapezoidalAB2_System& sys)
     sys.predict(k, r);
     sys.tr_step(t, k);
     err = sys.predictor_difference_norm()/(3.*(1. + 1./r));
-    if(!fixed_step && err > tolt && k > k_min)
+    if(!fixed_step && err > tolt && k > k_low*(1. + 1e-12))
     {
       sys.restore_state();
       n_rejected++;
-      k = factor*k*std::cbrt(tolt/err);
+      k = std::max(factor*k*std::cbrt(tolt/err), k_low);
       Output::print<2>("TR-AB2: step rejected, |e| = ", err, ", new dt = ", k);
       continue;
     }
@@ -87,7 +94,8 @@ double TrapezoidalAB2::advance(TrapezoidalAB2_System& sys)
   k_old = k_eff;
   first_step = false;
   if(!fixed_step)
-    k = std::min(factor*k*std::cbrt(tolt/std::max(err, 1e-300)), k_max);
+    k = std::max(std::min(factor*k*std::cbrt(tolt/std::max(err, 1e-300)), k_max),
+                 k_low);
   Output::print("TR-AB2: t = ", t, " (step ", n_accepted, ", |e| = ", err,
                 ", next dt = ", k, ")");
   return err;

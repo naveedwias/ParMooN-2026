@@ -79,6 +79,8 @@ void AdaptiveTimeLoop::run()
     system->estimate(estimator);
     double eta = estimator.get_estimated_global_error();
     double error = system->exact_error();
+    if(system->estimate_time() >= 0.)
+      t = system->estimate_time();
     double eff = (error > 0.) ? eta/error : 0.;
     const TCollection* coll = system->get_collection();
     int n_cells = coll->GetN_Cells();

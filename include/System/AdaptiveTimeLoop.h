@@ -54,6 +54,9 @@ class AdaptiveTimeSystem : public TrapezoidalAB2_System
     /// @brief error in the problem's norm against the exact solution, or a
     /// negative value if unknown
     virtual double exact_error() const = 0;
+    /// @brief time the last estimate refers to (it differs from the current
+    /// time if the system estimates with the state before an averaging step)
+    virtual double estimate_time() const { return -1.; }
     /// @brief additional errors at the current time in standard norms (name,
     /// value), e.g. L2(u), H1(u), L2(p); written as extra table columns
     virtual std::vector<std::pair<std::string, double>> error_columns()

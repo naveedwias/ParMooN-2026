@@ -10,6 +10,12 @@
 #include "SquareMatrix2D.h"
 #include "AuxParam2D.h"
 #include "MainUtilities.h"
+#include "QuadratureFormulaDatabase.h"
+#include "BaseFunctions.h"
+#include "BaseCell.h"
+#include "Vertex.h"
+#include "FiniteElement.h"
+#include "NSE_local_assembling_routines.h"
 #include <algorithm>
 #include <cmath>
 
@@ -20,7 +26,10 @@ TimeNavierStokesSPG::TimeNavierStokesSPG(const TDomain& domain,
    S(BlockFEMatrix::NSE2D_Type14(ns.get_velocity_space(), ns.get_pressure_space())),
    ud(ns.get_solution()), ud_old(ns.get_solution()), u_saved(ns.get_solution()),
    ud_saved(ns.get_solution()), u_pred(ns.get_solution()), rhs(ns.get_rhs()),
-   solver(param_db), db(param_db), t(0.), last_error(-1.), n_picard(0)
+   solver(param_db), db(param_db), t(0.), last_error(-1.), n_picard(0),
+   last_estimate_t(-1.), dt_alpha(0.), min_delta(0.),
+   est_sol(ns.get_solution()), est_ud(ns.get_solution()), est_t(0.),
+   has_est(false)
 {
   n_u = ns.get_velocity_space()->get_n_dof();
   n_p = ns.get_pressure_space()->get_n_dof();
@@ -32,9 +41,154 @@ TimeNavierStokesSPG::TimeNavierStokesSPG(const TDomain& domain,
   ud_fct.reset(new TFEVectFunct2D(ns.get_velocity_space(), "dt_u", ud.get_entries(), 2));
   ns.add_to_output(ud_fct.get());
   t = db["time_start"];
+  // lower bound of the step size: alpha min_K delta_K
+  dt_alpha = db.contains("tnse_dt_alpha") ? (double) db["tnse_dt_alpha"] : 0.;
+  {
+    const TCollection* coll = ns.get_velocity_space()->GetCollection();
+    const double nu = 1./TDatabase::ParamDB->RE_NR;
+    const bool equal_order = (TDatabase::ParamDB->VELOCITY_SPACE
+                              == TDatabase::ParamDB->PRESSURE_SPACE);
+    const double delta0 = db["spg_delta0"], mu0 = db["spg_mu0"];
+    min_delta = 1e300;
+    for(int i = 0; i < coll->GetN_Cells(); ++i)
+    {
+      double dK, mK;
+      compute_SPG_parameters(coll->GetCell(i)->GetDiameter(), nu, delta0, mu0,
+                             equal_order, dK, mK);
+      min_delta = std::min(min_delta, dK);
+    }
+  }
+}
+
+// L2 projection of u(time_start) onto the velocity space, Dirichlet dofs from
+// the boundary data (the lifting of the manuscript): M x = (u_0, phi_i) on the
+// free dofs, solved by Jacobi-preconditioned CG
+void TimeNavierStokesSPG::l2_projection_of_initial_velocity()
+{
+  ParameterDatabase db0(db);
+  db0["spg_delta0"] = 0.;                     // plain mass matrix in A11, A22
+  BlockFEMatrix Mg(BlockFEMatrix::NSE2D_Type14(ns.get_velocity_space(),
+                                               ns.get_pressure_space()));
+  assemble_mass(Mg, db0);
+  auto block = Mg.get_blocks_uniquely()[0];
+  const int* rowptr = block->get_row_ptr();
+  const int* kcol = block->get_vector_columns();
+  const double* ent = block->GetEntries();
+  auto space = ns.get_velocity_space();
+  const TCollection* coll = space->GetCollection();
+  const Example_NSE2D& example = ns.get_example();
+  int n_qp;
+  const double *w, *xi, *eta;
+  int degree = 2*space->get_fe(0).GetBaseFunct()->GetPolynomialDegree() + 6;
+  QuadratureFormulaDatabase::qf_from_degree(degree, BFRefElements::BFUnitTriangle)
+    ->GetFormulaData(n_qp, w, xi, eta);
+  double wsum = 0.;
+  for(int q = 0; q < n_qp; ++q)
+    wsum += w[q];
+  BlockVector& sol = ns.get_solution();
+  for(int c = 0; c < 2; ++c)
+  {
+    std::vector<double> b(n_u, 0.), phi(MaxN_BaseFunctions2D);
+    for(int i = 0; i < coll->GetN_Cells(); ++i)
+    {
+      const TBaseCell* cell = coll->GetCell(i);
+      double v[6];
+      for(int k = 0; k < 3; ++k)
+      {
+        v[2*k] = cell->GetVertex(k)->GetX();
+        v[2*k+1] = cell->GetVertex(k)->GetY();
+      }
+      double area = 0.5*std::abs((v[2]-v[0])*(v[5]-v[1]) - (v[4]-v[0])*(v[3]-v[1]));
+      const FiniteElement& fe = space->get_fe(i);
+      const BaseFunctions* bf = fe.GetBaseFunct();
+      int n_loc = fe.GetN_DOF();
+      const int* DOF = space->GetGlobalDOF(i);
+      for(int q = 0; q < n_qp; ++q)
+      {
+        double x = v[0] + xi[q]*(v[2]-v[0]) + eta[q]*(v[4]-v[0]);
+        double y = v[1] + xi[q]*(v[3]-v[1]) + eta[q]*(v[5]-v[1]);
+        double ue[4];
+        example.get_exact(c)(x, y, ue);
+        bf->GetDerivatives(MultiIndex2D::D00, xi[q], eta[q], phi.data());
+        double wq = w[q]*area/wsum;
+        for(int k = 0; k < n_loc; ++k)
+          b[DOF[k]] += wq*ue[0]*phi[k];
+      }
+    }
+    // unknowns: free dofs; Dirichlet entries (boundary data) already in x
+    double* x = sol.get_entries() + c*n_u;
+    const size_t na = n_active_u;
+    auto matvec = [&](const std::vector<double>& p, std::vector<double>& q)
+    {
+      for(size_t r = 0; r < na; ++r)
+      {
+        double s_ = 0.;
+        for(int j = rowptr[r]; j < rowptr[r+1]; ++j)
+          if((size_t) kcol[j] < na)
+            s_ += ent[j]*p[kcol[j]];
+        q[r] = s_;
+      }
+    };
+    std::vector<double> diag(na, 1.), rhs(na), xa(na);
+    for(size_t r = 0; r < na; ++r)
+    {
+      double s_ = b[r];
+      for(int j = rowptr[r]; j < rowptr[r+1]; ++j)
+      {
+        if((size_t) kcol[j] >= na)
+          s_ -= ent[j]*x[kcol[j]];
+        else if((size_t) kcol[j] == r)
+          diag[r] = ent[j];
+      }
+      rhs[r] = s_;
+      xa[r] = x[r];
+    }
+    std::vector<double> rr(na), z(na), p(na), Ap(na);
+    matvec(xa, Ap);
+    double rz = 0., r0 = 0.;
+    for(size_t r = 0; r < na; ++r)
+    {
+      rr[r] = rhs[r] - Ap[r];
+      z[r] = rr[r]/diag[r];
+      p[r] = z[r];
+      rz += rr[r]*z[r];
+      r0 += rhs[r]*rhs[r];
+    }
+    r0 = std::sqrt(r0);
+    int it = 0;
+    for(; it < 5000; ++it)
+    {
+      double rn = 0.;
+      for(size_t r = 0; r < na; ++r)
+        rn += rr[r]*rr[r];
+      if(std::sqrt(rn) <= 1e-14*std::max(r0, 1e-300))
+        break;
+      matvec(p, Ap);
+      double pAp = 0.;
+      for(size_t r = 0; r < na; ++r)
+        pAp += p[r]*Ap[r];
+      double a = rz/pAp;
+      double rz_new = 0.;
+      for(size_t r = 0; r < na; ++r)
+      {
+        xa[r] += a*p[r];
+        rr[r] -= a*Ap[r];
+        z[r] = rr[r]/diag[r];
+        rz_new += rr[r]*z[r];
+      }
+      for(size_t r = 0; r < na; ++r)
+        p[r] = z[r] + rz_new/rz*p[r];
+      rz = rz_new;
+    }
+    for(size_t r = 0; r < na; ++r)
+      x[r] = xa[r];
+    Output::print<2>("L2 projection of u_0, component ", c, ": ", it,
+                     " CG iterations");
+  }
 }
 
 void TimeNavierStokesSPG::initialize()
+
 {
   // initial condition and (Ud^0, P^0)
   t = db["time_start"];
@@ -45,8 +199,13 @@ void TimeNavierStokesSPG::initialize()
   ns.get_velocity().GetComponent(1)->Interpolate(example.get_exact(1));
   set_dirichlet_values(t, sol);
   std::string init = db.contains("tnse_initial_value")
-                     ? db["tnse_initial_value"].value_as_string() : "projection";
-  if(init == "projection")
+                     ? db["tnse_initial_value"].value_as_string() : "l2_projection";
+  if(init == "l2_projection")
+  {
+    // the choice of the manuscript (Section 2.4): U^0 = L2 projection of u_0
+    l2_projection_of_initial_velocity();
+  }
+  else if(init == "consistent_projection")
   {
     // The interpolant of u(t0) is not consistent with the discrete
     // constraint (divergence row with PSPG); its component in the stiff modes
@@ -80,7 +239,8 @@ void TimeNavierStokesSPG::initialize()
     project_pressure();
   }
   else if(init != "interpolation")
-    ErrThrow("tnse_initial_value must be projection or interpolation");
+    ErrThrow("tnse_initial_value must be l2_projection, consistent_projection "
+             "or interpolation");
   initial_time_derivative(t);
 }
 
@@ -310,6 +470,10 @@ double TimeNavierStokesSPG::predictor_difference_norm()
 
 void TimeNavierStokesSPG::average_with_saved(double t_mid)
 {
+  est_sol = ns.get_solution();
+  est_ud = ud;
+  est_t = t;
+  has_est = true;
   // velocity, pressure (the pressure enters the estimator and the output) and
   // the time derivative are averaged; the averaged state belongs to t_mid
   BlockVector& sol = ns.get_solution();
@@ -336,12 +500,22 @@ void TimeNavierStokesSPG::estimate(ErrorEstimator<2>& estimator)
   auto* est = dynamic_cast<NSE_SPG_ErrorEstimator*>(&estimator);
   if(est == nullptr)
     ErrThrow("TimeNavierStokesSPG::estimate needs an NSE_SPG_ErrorEstimator");
+  // after an averaging step: estimate with the non-averaged pair at t^{n+1}
+  BlockVector keep_sol(ns.get_solution()), keep_ud(ud);
+  const double keep_t = t;
+  if(has_est)
+  {
+    ns.get_solution() = est_sol;
+    ud = est_ud;
+    t = est_t;
+  }
   TDatabase::TimeDB->CURRENTTIME = t;
   TFEVectFunct2D ud_fct(ns.get_velocity_space(), "ud", ud.get_entries(), 2);
   est->set_transient(&ud_fct);
   est->estimate(ns.get_example(), ns.get_velocity(), ns.get_pressure());
   est->set_transient(nullptr);
   last_error = est->get_error_spg();
+  last_estimate_t = t;
   auto ep = est->get_error_parts();
   last_contributions = {
     {"eta_res", est->get_eta_res()}, {"eta_div", est->get_eta_div()},
@@ -352,6 +526,15 @@ void TimeNavierStokesSPG::estimate(ErrorEstimator<2>& estimator)
     {"err_grad", std::sqrt(std::max(ep[0], 0.))},
     {"err_div", std::sqrt(std::max(ep[2], 0.))},
     {"err_supg", std::sqrt(std::max(ep[3], 0.))}};
+  cached_columns = compute_error_columns();
+  if(has_est)
+  {
+    ns.get_solution() = keep_sol;
+    ud = keep_ud;
+    t = keep_t;
+    TDatabase::TimeDB->CURRENTTIME = t;
+    has_est = false;
+  }
 }
 
 const TCollection* TimeNavierStokesSPG::get_collection() const
@@ -401,6 +584,13 @@ void TimeNavierStokesSPG::output(int index)
 }
 
 std::vector<std::pair<std::string, double>> TimeNavierStokesSPG::error_columns()
+{
+  if(!cached_columns.empty())
+    return cached_columns;
+  return compute_error_columns();
+}
+
+std::vector<std::pair<std::string, double>> TimeNavierStokesSPG::compute_error_columns()
 {
   const Example_NSE2D& example = ns.get_example();
   if(example.get_exact().size() < 3)

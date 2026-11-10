@@ -1,4 +1,4 @@
-[ transient SUPG/PSPG/grad-div Navier-Stokes, Example 1 (smooth) ]
+[ transient SUPG/PSPG/grad-div Navier-Stokes, Example 2 of the manuscript (boundary layers, AAJ27 Section 4.2), adaptive meshes and time steps; nu = 1e-2 (reynolds_number 100) or 1e-3 (1000) ]
 outfile: tnse2d_adaptive_spg_ex2.out
 boundary_file: Default_UnitSquare
 geo_file: TwoTriangles
@@ -37,7 +37,10 @@ adaptive_tol2: 5.0e-4
 adaptive_max_cell_level: 12
 adaptive_output_time: 0.25
 tnse_write_table: tnse2d_adaptive_spg_ex2_table.txt
-# averaging only after the start and after mesh changes (see TrapezoidalAB2.h)
-trab2_averaging: on_demand
+trab2_averaging: periodic
 output_write_ps: true
 output_directory: vtk
+# initial velocity: L2 projection of u_0 (manuscript, Section 2)
+tnse_initial_value: l2_projection
+# lower bound dt >= alpha min delta_K; alpha to be calibrated (manuscript, Section 4)
+tnse_dt_alpha: 0.5
