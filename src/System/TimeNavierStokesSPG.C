@@ -20,8 +20,9 @@
 #include <cmath>
 
 TimeNavierStokesSPG::TimeNavierStokesSPG(const TDomain& domain,
-  const ParameterDatabase& param_db, const Example_NSE2D& example)
- : ns(domain, param_db, example),
+  const ParameterDatabase& param_db, const Example_TimeNSE2D& example)
+ : time_example(example), steady_example(example.get_stationary_example()),
+   ns(domain, param_db, steady_example),
    M(BlockFEMatrix::NSE2D_Type14(ns.get_velocity_space(), ns.get_pressure_space())),
    S(BlockFEMatrix::NSE2D_Type14(ns.get_velocity_space(), ns.get_pressure_space())),
    ud(ns.get_solution()), ud_old(ns.get_solution()), u_saved(ns.get_solution()),
@@ -60,7 +61,8 @@ TimeNavierStokesSPG::TimeNavierStokesSPG(const TDomain& domain,
   }
 }
 
-// L2 projection of u(time_start) onto the velocity space, Dirichlet dofs from
+// L2 projection of the initial condition u_0 onto the velocity space (u_0 is
+// evaluated at TDatabase::TimeDB->CURRENTTIME = time_start), Dirichlet dofs from
 // the boundary data (the lifting of the manuscript): M x = (u_0, phi_i) on the
 // free dofs, solved by Jacobi-preconditioned CG
 void TimeNavierStokesSPG::l2_projection_of_initial_velocity()
@@ -108,7 +110,7 @@ void TimeNavierStokesSPG::l2_projection_of_initial_velocity()
         double x = v[0] + xi[q]*(v[2]-v[0]) + eta[q]*(v[4]-v[0]);
         double y = v[1] + xi[q]*(v[3]-v[1]) + eta[q]*(v[5]-v[1]);
         double ue[4];
-        example.get_exact(c)(x, y, ue);
+        time_example.get_initial_cond(c)(x, y, ue);
         bf->GetDerivatives(MultiIndex2D::D00, xi[q], eta[q], phi.data());
         double wq = w[q]*area/wsum;
         for(int k = 0; k < n_loc; ++k)
@@ -195,8 +197,8 @@ void TimeNavierStokesSPG::initialize()
   TDatabase::TimeDB->CURRENTTIME = t;
   const Example_NSE2D& example = ns.get_example();
   BlockVector& sol = ns.get_solution();
-  ns.get_velocity().GetComponent(0)->Interpolate(example.get_exact(0));
-  ns.get_velocity().GetComponent(1)->Interpolate(example.get_exact(1));
+  ns.get_velocity().GetComponent(0)->Interpolate(time_example.get_initial_cond(0));
+  ns.get_velocity().GetComponent(1)->Interpolate(time_example.get_initial_cond(1));
   set_dirichlet_values(t, sol);
   std::string init = db.contains("tnse_initial_value")
                      ? db["tnse_initial_value"].value_as_string() : "l2_projection";

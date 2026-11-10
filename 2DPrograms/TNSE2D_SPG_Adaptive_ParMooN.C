@@ -26,6 +26,7 @@
 #include <Database.h>
 #include "NavierStokes.h"
 #include <Example_NSE2D.h>
+#include <Example_TimeNSE2D.h>
 #include <Chrono.h>
 #include <ParameterDatabase.h>
 #include "ParMooN.h"
@@ -477,7 +478,8 @@ int main(int argc, char* argv[])
   bool write_ps = parmoon_db["output_write_ps"];
   std::string table_file = parmoon_db["tnse_write_table"];
 
-  Example_NSE2D example(parmoon_db);
+  Example_TimeNSE2D time_example(parmoon_db);
+  Example_NSE2D example = time_example.get_stationary_example();
   NSE_SPG_ErrorEstimator estimator(parmoon_db);
   std::vector<TableRow> table;
 

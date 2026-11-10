@@ -31,6 +31,7 @@
 #include <Database.h>
 #include "NavierStokes.h"
 #include <Example_NSE2D.h>
+#include <Example_TimeNSE2D.h>
 #include <Chrono.h>
 #include <ParameterDatabase.h>
 #include "ParMooN.h"
@@ -305,10 +306,10 @@ int main(int argc, char* argv[])
   check_parameters_consistency_NSE(parmoon_db);
   // periodic boundaries (example 27): the boundary condition function is
   // passed, so that boundary joints marked PERIODIC become periodic joints
-  Example_NSE2D example_for_domain(parmoon_db);
+  Example_TimeNSE2D time_example(parmoon_db);
   bool periodic = parmoon_db["bdf2_periodic"];
   domain.refine_and_get_hierarchy_of_collections(parmoon_db,
-    periodic ? example_for_domain.get_bc(0) : nullptr);
+    periodic ? time_example.get_bc(0) : nullptr);
 
   double t_start = parmoon_db["time_start"], t_end = parmoon_db["time_end"];
   double dt = parmoon_db["time_step_length"];
@@ -324,9 +325,11 @@ int main(int argc, char* argv[])
   bool use_cip = (cip.delta1 > 0. || cip.delta2 > 0. || cip.delta3 > 0.);
   std::string table_file = parmoon_db["bdf2_write_table"];
 
-  // the Navier-Stokes example and the Stokes projection example (same
-  // solution and boundary data, right-hand side -nu Laplace(u) + grad p)
-  Example_NSE2D example(parmoon_db);
+  // the time-dependent example (Example_TimeNSE2D, cases 25-28) as a
+  // stationary example for NavierStokes<2>, and below the Stokes projection
+  // example (same solution and boundary data, right-hand side
+  // -nu Laplace(u) + grad p)
+  Example_NSE2D example = time_example.get_stationary_example();
 
   // the system object: spaces, matrix structure, solution, output, errors.
   // Its own assembling (galerkin, problem_type 3 -> Stokes) is used for the

@@ -6,6 +6,7 @@
 #include "TimeNavierStokes.h"
 #include "AuxParam2D.h" // used in MixingLayerSlipSmallSquares.h
 #include "BaseCell.h"
+#include "Example_NSE2D.h"
 #include <string>
 
 namespace bsp1              // case 0
@@ -61,6 +62,48 @@ namespace poly_sin
 namespace sinsincospi
 {
 #include "TNSE_2D/SinSinCosPi.h"
+}
+
+// ---- transient examples of the adaptive SUPG/PSPG/grad-div and the BDF2-IMEX/CIP
+// ---- programs (cases 23-28; the numbers are kept from their former place in
+// ---- Example_NSE2D, so that the input files remain valid)
+namespace tnse_aaj_smooth            // case 23
+{
+#include "TNSE_2D/TNSE_AAJ_smooth.h"
+}
+namespace tnse_aaj_layers            // case 24
+{
+#include "TNSE_2D/TNSE_AAJ_layers.h"
+}
+namespace bdf2imex_smooth            // case 25
+{
+#include "TNSE_2D/BDF2IMEX_smooth.h"
+}
+namespace bdf2imex_lake              // case 26
+{
+#include "TNSE_2D/BDF2IMEX_lake.h"
+}
+namespace bdf2imex_shearlayer        // case 27
+{
+#include "TNSE_2D/BDF2IMEX_shearlayer.h"
+}
+namespace tnse_polynomial_in_space   // case 28
+{
+#include "TNSE_2D/TNSE_polynomial_in_space.h"
+}
+
+CoeffFct2D bdf2imex_stokes_projection_coeffs(int example)
+{
+  switch(example)
+  {
+    case 25: return bdf2imex_smooth::StokesProjectionCoeffs;
+    case 26: return bdf2imex_lake::StokesProjectionCoeffs;
+    case 27: return bdf2imex_shearlayer::StokesProjectionCoeffs;
+    case 28: return tnse_polynomial_in_space::StokesProjectionCoeffs;
+    default:
+      ErrThrow("bdf2imex_stokes_projection_coeffs: no Stokes projection data "
+               "for example ", example, " (available: 25, 26, 27, 28)");
+  }
 }
 
 Example_TimeNSE2D::Example_TimeNSE2D(
@@ -386,6 +429,114 @@ Example_TimeNSE2D::Example_TimeNSE2D(
 
       two_outlets::ExampleFile();
       break;
+    case 23: // transient SUPG/PSPG/grad-div Navier-Stokes, transient smooth
+    exact_solution.push_back( tnse_aaj_smooth::ExactU1 );
+    exact_solution.push_back( tnse_aaj_smooth::ExactU2 );
+    exact_solution.push_back( tnse_aaj_smooth::ExactP );
+    boundary_conditions.push_back( tnse_aaj_smooth::BoundCondition );
+    boundary_conditions.push_back( tnse_aaj_smooth::BoundCondition );
+    boundary_conditions.push_back( BoundConditionNoBoundCondition );
+    boundary_data.push_back( tnse_aaj_smooth::U1BoundValue );
+    boundary_data.push_back( tnse_aaj_smooth::U2BoundValue );
+    boundary_data.push_back( BoundaryValueHomogenous );
+    problem_coefficients = tnse_aaj_smooth::LinCoeffs;
+    tnse_aaj_smooth::ExampleFile();
+    // initial condition: the exact solution at time_start
+    initialCondition.push_back( tnse_aaj_smooth::ExactU1 );
+    initialCondition.push_back( tnse_aaj_smooth::ExactU2 );
+    initialCondition.push_back( tnse_aaj_smooth::ExactP );
+    break;
+
+    case 24: // transient SUPG/PSPG/grad-div Navier-Stokes, transient layers
+    exact_solution.push_back( tnse_aaj_layers::ExactU1 );
+    exact_solution.push_back( tnse_aaj_layers::ExactU2 );
+    exact_solution.push_back( tnse_aaj_layers::ExactP );
+    boundary_conditions.push_back( tnse_aaj_layers::BoundCondition );
+    boundary_conditions.push_back( tnse_aaj_layers::BoundCondition );
+    boundary_conditions.push_back( BoundConditionNoBoundCondition );
+    boundary_data.push_back( tnse_aaj_layers::U1BoundValue );
+    boundary_data.push_back( tnse_aaj_layers::U2BoundValue );
+    boundary_data.push_back( BoundaryValueHomogenous );
+    problem_coefficients = tnse_aaj_layers::LinCoeffs;
+    tnse_aaj_layers::ExampleFile();
+    // initial condition: the exact solution at time_start
+    initialCondition.push_back( tnse_aaj_layers::ExactU1 );
+    initialCondition.push_back( tnse_aaj_layers::ExactU2 );
+    initialCondition.push_back( tnse_aaj_layers::ExactP );
+    break;
+
+    case 28: // transient verification: u in P2, p in P1, time-dependent Dirichlet data
+    exact_solution.push_back( tnse_polynomial_in_space::ExactU1 );
+    exact_solution.push_back( tnse_polynomial_in_space::ExactU2 );
+    exact_solution.push_back( tnse_polynomial_in_space::ExactP );
+    boundary_conditions.push_back( tnse_polynomial_in_space::BoundCondition );
+    boundary_conditions.push_back( tnse_polynomial_in_space::BoundCondition );
+    boundary_conditions.push_back( BoundConditionNoBoundCondition );
+    boundary_data.push_back( tnse_polynomial_in_space::U1BoundValue );
+    boundary_data.push_back( tnse_polynomial_in_space::U2BoundValue );
+    boundary_data.push_back( BoundaryValueHomogenous );
+    problem_coefficients = tnse_polynomial_in_space::LinCoeffs;
+    tnse_polynomial_in_space::ExampleFile();
+    // initial condition: the exact solution at time_start
+    initialCondition.push_back( tnse_polynomial_in_space::ExactU1 );
+    initialCondition.push_back( tnse_polynomial_in_space::ExactU2 );
+    initialCondition.push_back( tnse_polynomial_in_space::ExactP );
+    break;
+
+    case 25: // BDF2-IMEX / CIP / Scott-Vogelius, smooth solution
+    exact_solution.push_back( bdf2imex_smooth::ExactU1 );
+    exact_solution.push_back( bdf2imex_smooth::ExactU2 );
+    exact_solution.push_back( bdf2imex_smooth::ExactP );
+    boundary_conditions.push_back( bdf2imex_smooth::BoundCondition );
+    boundary_conditions.push_back( bdf2imex_smooth::BoundCondition );
+    boundary_conditions.push_back( BoundConditionNoBoundCondition );
+    boundary_data.push_back( bdf2imex_smooth::U1BoundValue );
+    boundary_data.push_back( bdf2imex_smooth::U2BoundValue );
+    boundary_data.push_back( BoundaryValueHomogenous );
+    problem_coefficients = bdf2imex_smooth::LinCoeffs;
+    bdf2imex_smooth::ExampleFile();
+    // initial condition: the exact solution at time_start
+    initialCondition.push_back( bdf2imex_smooth::ExactU1 );
+    initialCondition.push_back( bdf2imex_smooth::ExactU2 );
+    initialCondition.push_back( bdf2imex_smooth::ExactP );
+    break;
+
+    case 26: // BDF2-IMEX / CIP / Scott-Vogelius, lake at rest (u = 0)
+    exact_solution.push_back( bdf2imex_lake::ExactU1 );
+    exact_solution.push_back( bdf2imex_lake::ExactU2 );
+    exact_solution.push_back( bdf2imex_lake::ExactP );
+    boundary_conditions.push_back( bdf2imex_lake::BoundCondition );
+    boundary_conditions.push_back( bdf2imex_lake::BoundCondition );
+    boundary_conditions.push_back( BoundConditionNoBoundCondition );
+    boundary_data.push_back( bdf2imex_lake::U1BoundValue );
+    boundary_data.push_back( bdf2imex_lake::U2BoundValue );
+    boundary_data.push_back( BoundaryValueHomogenous );
+    problem_coefficients = bdf2imex_lake::LinCoeffs;
+    bdf2imex_lake::ExampleFile();
+    // initial condition: the exact solution at time_start
+    initialCondition.push_back( bdf2imex_lake::ExactU1 );
+    initialCondition.push_back( bdf2imex_lake::ExactU2 );
+    initialCondition.push_back( bdf2imex_lake::ExactP );
+    break;
+
+    case 27: // BDF2-IMEX / CIP, doubly periodic shear layer
+    exact_solution.push_back( bdf2imex_shearlayer::ExactU1 );
+    exact_solution.push_back( bdf2imex_shearlayer::ExactU2 );
+    exact_solution.push_back( bdf2imex_shearlayer::ExactP );
+    boundary_conditions.push_back( bdf2imex_shearlayer::BoundCondition );
+    boundary_conditions.push_back( bdf2imex_shearlayer::BoundCondition );
+    boundary_conditions.push_back( BoundConditionNoBoundCondition );
+    boundary_data.push_back( bdf2imex_shearlayer::U1BoundValue );
+    boundary_data.push_back( bdf2imex_shearlayer::U2BoundValue );
+    boundary_data.push_back( BoundaryValueHomogenous );
+    problem_coefficients = bdf2imex_shearlayer::LinCoeffs;
+    bdf2imex_shearlayer::ExampleFile();
+    // initial condition: the exact solution at time_start
+    initialCondition.push_back( bdf2imex_shearlayer::ExactU1 );
+    initialCondition.push_back( bdf2imex_shearlayer::ExactU2 );
+    initialCondition.push_back( bdf2imex_shearlayer::ExactP );
+    break;
+
   default:
       ErrThrow("Unknown time-dependent Example_TimeNSE2D example!");
   }
@@ -490,4 +641,12 @@ std::vector<size_t> Example_TimeNSE2D::get_windkessel_id() const
   } else {
     return empty_vector;
   }
+}
+
+Example_NSE2D Example_TimeNSE2D::get_stationary_example() const
+{
+  std::vector<BoundCondFunct2D*> bc(this->get_bc(), this->get_bc() + 3);
+  std::vector<BoundValueFunct2D*> bd(this->get_bd(), this->get_bd() + 3);
+  return Example_NSE2D(this->get_exact(), bc, bd, this->get_coeffs(),
+                       this->get_nu());
 }

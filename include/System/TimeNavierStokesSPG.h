@@ -20,17 +20,19 @@
 #include "BlockFEMatrix.h"
 #include "BlockVector.h"
 #include "Example_NSE2D.h"
+#include "Example_TimeNSE2D.h"
 #include "NavierStokes.h"
 #include "Solver.h"
 
 class TimeNavierStokesSPG : public AdaptiveTimeSystem
 {
   public:
-    /// @brief system on the finest grid of the domain; initialize() sets the
-    /// velocity to the interpolated exact solution at time_start and computes
-    /// (Ud^0, P^0) from the semidiscrete problem
+    /// @brief system on the finest grid of the domain for a time-dependent
+    /// example; initialize() sets the initial velocity (from the example's
+    /// initial condition) and computes (Ud^0, P^0) from the semidiscrete
+    /// problem
     TimeNavierStokesSPG(const TDomain& domain, const ParameterDatabase& db,
-                        const Example_NSE2D& example);
+                        const Example_TimeNSE2D& example);
 
     void initialize() override;
     // TrapezoidalAB2_System
@@ -67,6 +69,11 @@ class TimeNavierStokesSPG : public AdaptiveTimeSystem
     int get_n_picard() const { return n_picard; }
 
   protected:
+    /// the time-dependent example: initial condition, data
+    const Example_TimeNSE2D& time_example;
+    /// the same functions as a stationary example for NavierStokes<2> (must be
+    /// declared before ns, which is initialized with it)
+    Example_NSE2D steady_example;
     NavierStokes<2> ns;
     BlockFEMatrix M, S;
     BlockVector ud, ud_old, u_saved, ud_saved, u_pred, rhs;

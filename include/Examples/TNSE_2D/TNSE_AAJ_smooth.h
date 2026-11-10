@@ -14,7 +14,7 @@
 
 namespace steady
 {
-#include "Oseen_AAJ_smooth.h"
+#include "NSE_2D/Oseen_AAJ_smooth.h"
 }
 
 void ExampleFile()

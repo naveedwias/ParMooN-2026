@@ -22,11 +22,6 @@
 
 template <int d> class NavierStokes; //forward declaration
 
-/// coefficient function of the Stokes projection (viscosity 1, right-hand side
-/// -Laplace(u) + grad p / nu with 1/nu = TDatabase::ParamDB->P1) for the
-/// BDF2-IMEX examples 25 (smooth) and 26 (lake at rest)
-CoeffFct2D bdf2imex_stokes_projection_coeffs(int example);
-
 class Example_NSE2D : public Example2D
 {
   public:

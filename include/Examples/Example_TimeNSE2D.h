@@ -20,6 +20,13 @@
 #include <functional>
 
 template <int d> class TimeNavierStokes; //forward declaration
+class Example_NSE2D;
+
+/// coefficient function of the Stokes projection (viscosity 1, right-hand side
+/// -Laplace(u) + grad p / nu with 1/nu = TDatabase::ParamDB->P1) for the
+/// BDF2-IMEX examples 25 (smooth), 26 (lake at rest), 27 (shear layer) and the
+/// verification example 28; throws for other examples
+CoeffFct2D bdf2imex_stokes_projection_coeffs(int example);
 
 class Example_TimeNSE2D : public Example_NonStationary2D
 {
@@ -46,6 +53,10 @@ public:
 
   /// Return kinematic viscosity, if set.
   double get_nu() const;
+  /// @brief the same functions (exact solution, boundary data, coefficients,
+  /// viscosity) as a stationary example, for classes built on
+  /// NavierStokes<2>; the functions read TDatabase::TimeDB->CURRENTTIME
+  Example_NSE2D get_stationary_example() const;
 
   /// Return permeability, if set.
   double get_inverse_permeability() const;

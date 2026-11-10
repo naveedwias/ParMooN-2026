@@ -4,12 +4,12 @@
 // TrapezoidalAB2 (TimeDiscRoutines), AdaptiveTimeLoop (System),
 // NSE_SPG_ErrorEstimator in transient mode, SolutionTransfer (FE).
 // Required: space_discretization_type supg_pspg_graddiv, NSTYPE 14,
-// problem_type 5, example 23 or 24. Parameters: see
+// problem_type 5, example 23, 24 or 28 of Example_TimeNSE2D. Parameters: see
 // AdaptiveTimeLoop::default_database(), tnse_write_table.
 // =============================================================================
 #include <Database.h>
 #include <Domain.h>
-#include <Example_NSE2D.h>
+#include <Example_TimeNSE2D.h>
 #include "ParMooN.h"
 #include "NSE_SPG_ErrorEstimator.h"
 #include "AdaptiveTimeLoop.h"
@@ -47,7 +47,7 @@ int main(int argc, char* argv[])
   TDomain domain(parmoon_db);
   check_parameters_consistency_NSE(parmoon_db);
   domain.refine_and_get_hierarchy_of_collections(parmoon_db);
-  Example_NSE2D example(parmoon_db);
+  Example_TimeNSE2D example(parmoon_db);
   NSE_SPG_ErrorEstimator estimator(parmoon_db);
 
   AdaptiveTimeLoop loop(domain, parmoon_db, estimator,
