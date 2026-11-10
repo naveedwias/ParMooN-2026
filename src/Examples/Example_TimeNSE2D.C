@@ -92,6 +92,19 @@ namespace tnse_polynomial_in_space   // case 28
 #include "TNSE_2D/TNSE_polynomial_in_space.h"
 }
 
+namespace tnse_poly_quadratic_time   // case 30
+{
+#define TNSE_POLY_TIME_DEGREE 2
+#include "TNSE_2D/TNSE_polynomial_space_time.h"
+#undef TNSE_POLY_TIME_DEGREE
+}
+namespace tnse_poly_linear_time      // case 31
+{
+#define TNSE_POLY_TIME_DEGREE 1
+#include "TNSE_2D/TNSE_polynomial_space_time.h"
+#undef TNSE_POLY_TIME_DEGREE
+}
+
 CoeffFct2D bdf2imex_stokes_projection_coeffs(int example)
 {
   switch(example)
@@ -100,9 +113,11 @@ CoeffFct2D bdf2imex_stokes_projection_coeffs(int example)
     case 26: return bdf2imex_lake::StokesProjectionCoeffs;
     case 27: return bdf2imex_shearlayer::StokesProjectionCoeffs;
     case 28: return tnse_polynomial_in_space::StokesProjectionCoeffs;
+    case 30: return tnse_poly_quadratic_time::StokesProjectionCoeffs;
+    case 31: return tnse_poly_linear_time::StokesProjectionCoeffs;
     default:
       ErrThrow("bdf2imex_stokes_projection_coeffs: no Stokes projection data "
-               "for example ", example, " (available: 25, 26, 27, 28)");
+               "for example ", example, " (available: 25-28, 30, 31)");
   }
 }
 
@@ -535,6 +550,40 @@ Example_TimeNSE2D::Example_TimeNSE2D(
     initialCondition.push_back( bdf2imex_shearlayer::ExactU1 );
     initialCondition.push_back( bdf2imex_shearlayer::ExactU2 );
     initialCondition.push_back( bdf2imex_shearlayer::ExactP );
+    break;
+
+    case 30: // verification: u in P2, p in P1, phi(t) quadratic (TR exact)
+    exact_solution.push_back( tnse_poly_quadratic_time::ExactU1 );
+    exact_solution.push_back( tnse_poly_quadratic_time::ExactU2 );
+    exact_solution.push_back( tnse_poly_quadratic_time::ExactP );
+    boundary_conditions.push_back( tnse_poly_quadratic_time::BoundCondition );
+    boundary_conditions.push_back( tnse_poly_quadratic_time::BoundCondition );
+    boundary_conditions.push_back( BoundConditionNoBoundCondition );
+    boundary_data.push_back( tnse_poly_quadratic_time::U1BoundValue );
+    boundary_data.push_back( tnse_poly_quadratic_time::U2BoundValue );
+    boundary_data.push_back( BoundaryValueHomogenous );
+    problem_coefficients = tnse_poly_quadratic_time::LinCoeffs;
+    tnse_poly_quadratic_time::ExampleFile();
+    initialCondition.push_back( tnse_poly_quadratic_time::ExactU1 );
+    initialCondition.push_back( tnse_poly_quadratic_time::ExactU2 );
+    initialCondition.push_back( tnse_poly_quadratic_time::ExactP );
+    break;
+
+    case 31: // verification: u in P2, p in P1, phi(t) linear (BDF2-IMEX exact)
+    exact_solution.push_back( tnse_poly_linear_time::ExactU1 );
+    exact_solution.push_back( tnse_poly_linear_time::ExactU2 );
+    exact_solution.push_back( tnse_poly_linear_time::ExactP );
+    boundary_conditions.push_back( tnse_poly_linear_time::BoundCondition );
+    boundary_conditions.push_back( tnse_poly_linear_time::BoundCondition );
+    boundary_conditions.push_back( BoundConditionNoBoundCondition );
+    boundary_data.push_back( tnse_poly_linear_time::U1BoundValue );
+    boundary_data.push_back( tnse_poly_linear_time::U2BoundValue );
+    boundary_data.push_back( BoundaryValueHomogenous );
+    problem_coefficients = tnse_poly_linear_time::LinCoeffs;
+    tnse_poly_linear_time::ExampleFile();
+    initialCondition.push_back( tnse_poly_linear_time::ExactU1 );
+    initialCondition.push_back( tnse_poly_linear_time::ExactU2 );
+    initialCondition.push_back( tnse_poly_linear_time::ExactP );
     break;
 
   default:

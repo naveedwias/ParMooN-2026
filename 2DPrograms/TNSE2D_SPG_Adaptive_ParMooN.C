@@ -446,6 +446,11 @@ int main(int argc, char* argv[])
   defaults.merge(NSE_SPG_ErrorEstimator::default_spg_estimator_database(), true);
   defaults.merge(RefinementStrategy<2>::default_refinement_strategy_database(), true);
   auto parmoon_db = parmoon::parmoon_initialize(argc, argv);
+  Output::warn("DEPRECATED", "this monolithic program is kept for reference only "
+               "and contains defects fixed in tnse2d_adaptive_spg: Dirichlet data are "
+               "assumed constant in time, the step size control uses a wrong L2 "
+               "norm (NSE) and the estimator after an averaging step refers to "
+               "the wrong time. Use tnse2d_adaptive_spg.");
   defaults.merge(parmoon_db, true);
   parmoon_db = defaults;
 

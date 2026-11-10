@@ -176,7 +176,10 @@ void NSE_SPG_ErrorEstimator::estimate(const Example_NSE2D& ex,
   {
     double hK = coll->GetCell(i)->GetDiameter();
     double dK, mK;
-    compute_SPG_parameters(hK, nu, delta0, mu0, equal_order, dK, mK);
+    // delta_K, mu_K with the cell size the assembly uses (CELL_MEASURE)
+    compute_SPG_parameters(
+      coll->GetCell(i)->Get_hK(TDatabase::ParamDB->CELL_MEASURE), nu, delta0,
+      mu0, equal_order, dK, mK);
     h_max = std::max(h_max, hK);
     delta_max = std::max(delta_max, dK);
   }
@@ -245,9 +248,12 @@ void NSE_SPG_ErrorEstimator::estimate(const Example_NSE2D& ex,
   for(int cellIdx = 0; cellIdx < n_cells; ++cellIdx)
   {
     TBaseCell* cell = coll->GetCell(cellIdx);
+    // h_K of the estimator: the diameter (theory); delta_K, mu_K: with the
+    // cell size the assembly uses (TDatabase::ParamDB->CELL_MEASURE)
     const double hK = cell->GetDiameter();
     double deltaK, muK;
-    compute_SPG_parameters(hK, nu, delta0, mu0, equal_order, deltaK, muK);
+    compute_SPG_parameters(cell->Get_hK(TDatabase::ParamDB->CELL_MEASURE), nu,
+                           delta0, mu0, equal_order, deltaK, muK);
 
     const FiniteElement& fe_u = fe_space_u->get_fe(cellIdx);
     const FiniteElement& fe_p = fe_space_p->get_fe(cellIdx);

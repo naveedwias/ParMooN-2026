@@ -12,7 +12,12 @@ code and examples) do not change any result.
   python3 regression.py --build ../../../build --update   # (re)create references
   python3 regression.py --build ... --cases tnse_ex1 bdf2_sv_cip_ex25
 
-Exit code 0 if every case agrees within --rtol (default 1e-10) / --atol.
+In addition, VERIFY cases check exactness: examples whose solution lies in the
+discrete space must be reproduced up to round-off (bounds on the table
+columns, no references needed).
+
+Exit code 0 if every case agrees within --rtol (default 1e-10) / --atol and
+every exactness check holds.
 """
 import argparse
 import os
@@ -72,6 +77,56 @@ CASES = {
     "old_tnse_ex1": ("parMooN_tnse2d_spg_adaptive_SEQUENTIAL", "tnse2d_spg_ex1.dat",
                      {"refinement_n_initial_steps": "3", "time_end": "0.01", "output_write_vtk": "false"},
                      "tnse_write_table"),
+}
+
+# Exactness checks: examples whose solution lies in the discrete space (and,
+# for the time integrators, is polynomial of a degree the scheme integrates
+# exactly). The maximum over the table rows of the listed columns must stay
+# below the bound; these checks do not need references and are independent of
+# the machine. name: (executable, base input, overrides, table key, {column: bound})
+VERIFY = {
+    # stationary SUPG/PSPG/grad-div method and estimator, example 29 (u in P2, p in P1)
+    "exact_oseen_P2P1": ("parMooN_oseen2d_spg_adaptive_SEQUENTIAL", "oseen2d_spg_aaj2026.dat",
+                         {"example": "29", "reynolds_number": "1.0e3", "refinement_max_n_adaptive_steps": "2"},
+                         "spg_write_table", {"error_spg": 1e-12, "eta": 1e-11}),
+    "exact_oseen_P2P2": ("parMooN_oseen2d_spg_adaptive_SEQUENTIAL", "oseen2d_spg_aaj2026.dat",
+                         {"example": "29", "reynolds_number": "1.0e3", "PRESSURE_SPACE": "2",
+                          "refinement_max_n_adaptive_steps": "2"},
+                         "spg_write_table", {"error_spg": 1e-12, "eta": 1e-11}),
+    "exact_nse_P3P2": ("parMooN_oseen2d_spg_adaptive_SEQUENTIAL", "oseen2d_spg_aaj2026.dat",
+                       {"example": "29", "problem_type": "5", "reynolds_number": "1.0e3",
+                        "VELOCITY_SPACE": "3", "PRESSURE_SPACE": "2", "nonlinloop_epsilon": "1e-14",
+                        "refinement_max_n_adaptive_steps": "2"},
+                       "spg_write_table", {"error_spg": 1e-11, "eta": 1e-10}),
+    # trapezoidal rule, example 30 (phi quadratic in time): exact for any steps and meshes
+    "exact_tr_fixed": ("parMooN_tnse2d_adaptive_spg_SEQUENTIAL", "tnse2d_adaptive_spg_verify_time.dat",
+                       {"example": "30", "time_end": "0.5", "time_step_length": "0.05",
+                        "nonlinloop_epsilon": "1e-13"},
+                       "tnse_write_table", {"error": 1e-11, "eta": 1e-9, "L2(u)": 1e-12, "L2(p)": 1e-11}),
+    "exact_tr_adaptive_dt": ("parMooN_tnse2d_adaptive_spg_SEQUENTIAL", "tnse2d_adaptive_spg_verify_time.dat",
+                             {"example": "30", "time_end": "0.5", "trab2_adaptive": "true",
+                              "trab2_tolt": "1e-4", "trab2_averaging_steps": "0", "tnse_dt_alpha": "0.0",
+                              "nonlinloop_epsilon": "1e-13"},
+                             "tnse_write_table", {"error": 1e-10, "eta": 1e-9, "L2(u)": 1e-12,
+                                                  "L2(p)": 1e-10}),
+    "exact_tr_mesh_alternation": ("parMooN_tnse2d_adaptive_spg_SEQUENTIAL",
+                                  "tnse2d_adaptive_spg_verify_time.dat",
+                                  {"example": "30", "time_end": "0.5", "time_step_length": "0.05",
+                                   "nonlinloop_epsilon": "1e-13", "adaptive_mesh": "true",
+                                   "adaptive_tol1": "1e-30", "adaptive_tol2": "1.0",
+                                   "adaptive_coarsening": "true", "adaptive_max_cell_level": "5"},
+                                  "tnse_write_table", {"error": 1e-11, "eta": 1e-9, "L2(u)": 1e-12,
+                                                       "L2(p)": 1e-11}),
+    # BDF2-IMEX/CIP, example 31 (phi linear in time), Stokes projection start
+    "exact_bdf2_sv_cip": ("parMooN_tnse2d_bdf2imex_cip_SEQUENTIAL", "tnse2d_bdf2imex_verify_time.dat",
+                          {"example": "31", "time_end": "0.5", "time_step_length": "0.05"},
+                          "bdf2_write_table", {"L2(u)": 1e-13, "H1(u)": 1e-12, "L2(p)": 1e-12,
+                                               "div(u)": 1e-12}),
+    "exact_bdf2_th": ("parMooN_tnse2d_bdf2imex_cip_SEQUENTIAL", "tnse2d_bdf2imex_verify_time.dat",
+                      {"example": "31", "time_end": "0.5", "time_step_length": "0.05",
+                       "VELOCITY_SPACE": "2", "PRESSURE_SPACE": "1",
+                       "refinement_final_step_barycentric": "false", "refinement_n_initial_steps": "2"},
+                      "bdf2_write_table", {"L2(u)": 1e-13, "H1(u)": 1e-12, "L2(p)": 1e-12}),
 }
 
 LOG_PATTERNS = ("RESULTS_LINE", "estimator:", "TR-AB2: t =")
@@ -157,9 +212,47 @@ def main():
     ap.add_argument("--atol", type=float, default=1e-14)
     ap.add_argument("--keep", action="store_true", help="keep the run directories")
     args = ap.parse_args()
-    names = args.cases or list(CASES)
+    names = args.cases or (list(CASES) + list(VERIFY))
     failed = []
-    for name in names:
+    for name in [n for n in names if n in VERIFY]:
+        exe, base, over, tkey, bounds = VERIFY[name]
+        exe_path = os.path.join(os.path.abspath(args.build), exe)
+        if not os.path.exists(exe_path):
+            print(f"{name:26s} SKIPPED (no {exe})")
+            continue
+        run_dir = tempfile.mkdtemp(prefix=f"reg_{name}_")
+        inp = prepare_input(base, over, run_dir, tkey)
+        p = subprocess.run([exe_path, inp], cwd=run_dir, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, timeout=1800)
+        tab = os.path.join(run_dir, "table.txt")
+        if p.returncode != 0 or not os.path.exists(tab):
+            print(f"{name:26s} FAILED (exit code {p.returncode}), see {run_dir}")
+            failed.append(name)
+            continue
+        lines = [l for l in open(tab).read().splitlines() if l.strip()]
+        header = lines[0].lstrip("#").split()
+        rows = [l.split() for l in lines[1:]
+                if not l.lstrip().startswith("#") and NUM.fullmatch(l.split()[0])]
+        msgs = []
+        for col, bound in bounds.items():
+            if col not in header:
+                msgs.append(f"column {col} missing")
+                continue
+            j = header.index(col)
+            vals = [abs(float(r[j])) for r in rows if len(r) > j and NUM.fullmatch(r[j])]
+            vmax = max(vals) if vals else float("nan")
+            if not vmax <= bound:
+                msgs.append(f"max {col} = {vmax:.3e} > {bound:.0e}")
+        if msgs:
+            print(f"{name:26s} NOT EXACT: " + "; ".join(msgs))
+            failed.append(name)
+        else:
+            worst = ", ".join(f"{c} {max(abs(float(r[header.index(c)])) for r in rows if len(r) > header.index(c)):.1e}"
+                              for c in bounds)
+            print(f"{name:26s} exact ({len(rows)} rows: {worst})")
+            if not args.keep:
+                shutil.rmtree(run_dir, ignore_errors=True)
+    for name in [n for n in names if n in CASES]:
         exe, base, over, tkey = CASES[name]
         exe_path = os.path.join(os.path.abspath(args.build), exe)
         if not os.path.exists(exe_path):

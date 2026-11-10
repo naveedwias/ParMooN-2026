@@ -172,14 +172,13 @@ double assemble_CIP_NSE2D(BlockFEMatrix& A, const TFEVectFunct2D& b,
   // Navier-Stokes types the velocity blocks are the first two of each of the
   // first two rows)
 
-  static bool warned = false;
-  if(!warned && space->get_fe(0).GetBaseFunct()->GetPolynomialDegree() > 2
+  // S_3 uses third derivatives of the velocity basis, which are not
+  // evaluated (they vanish for P2): for higher degrees S_3 would be wrong,
+  // not merely inexact, so refuse instead of warning
+  if(space->get_fe(0).GetBaseFunct()->GetPolynomialDegree() > 2
      && param.delta3 > 0.)
-  {
-    Output::warn("CIP_NSE2D", "S_3 is computed without the third derivatives "
-                 "of the basis functions (exact only for P2)");
-    warned = true;
-  }
+    ErrThrow("CIP_NSE2D: S_3 (cip_delta3 > 0) is implemented for velocity "
+             "degree 2 only; set cip_delta3 = 0 for higher degrees");
 
   const TQuadFormula* qf = QuadratureFormulaDatabase::qf_from_degree(
       param.quad_degree, BFRefElements::BFUnitLine);

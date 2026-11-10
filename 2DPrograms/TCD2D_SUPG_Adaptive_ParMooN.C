@@ -606,6 +606,11 @@ int main(int argc, char* argv[])
   defaults.merge(RefinementStrategy<2>::default_refinement_strategy_database(),
                  true);
   auto parmoon_db = parmoon::parmoon_initialize(argc, argv);
+  Output::warn("DEPRECATED", "this monolithic program is kept for reference only "
+               "and contains defects fixed in tcd2d_adaptive_tr: Dirichlet data are "
+               "assumed constant in time, the step size control uses a wrong L2 "
+               "norm (NSE) and the estimator after an averaging step refers to "
+               "the wrong time. Use tcd2d_adaptive_tr.");
   // values from the input file take precedence over the defaults
   defaults.merge(parmoon_db, true);
   parmoon_db = defaults;

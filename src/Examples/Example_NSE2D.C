@@ -80,6 +80,10 @@ namespace brinkman_Porous_Cavity_Tshape
 #include "NSE_2D/Brinkman_Porous_Cavity_Tshape.h"
 }
 
+namespace oseen_spg_polynomial
+{
+#include "NSE_2D/Oseen_SPG_polynomial.h"
+}
 namespace harmonic_polynomial_1
 {
 #include "NSE_2D/harmonic_poly.h"
@@ -714,6 +718,20 @@ case 7:
     oseen_aaj_layers::ExampleFile();
     break;
 
+  case 29: // verification of the SUPG/PSPG/grad-div method: (u,p) in P2/P1
+    exact_solution.push_back( oseen_spg_polynomial::ExactU1 );
+    exact_solution.push_back( oseen_spg_polynomial::ExactU2 );
+    exact_solution.push_back( oseen_spg_polynomial::ExactP );
+    boundary_conditions.push_back( oseen_spg_polynomial::BoundCondition );
+    boundary_conditions.push_back( oseen_spg_polynomial::BoundCondition );
+    boundary_conditions.push_back( BoundConditionNoBoundCondition );
+    boundary_data.push_back( oseen_spg_polynomial::U1BoundValue );
+    boundary_data.push_back( oseen_spg_polynomial::U2BoundValue );
+    boundary_data.push_back( BoundaryValueHomogenous );
+    problem_coefficients = oseen_spg_polynomial::LinCoeffs;
+    oseen_spg_polynomial::ExampleFile();
+    break;
+
   default:
     ErrThrow("Unknown Navier-Stokes example",  example_code, " !");
   }
@@ -762,6 +780,7 @@ double Example_NSE2D::get_nu() const
   case 18:
   case 21:
   case 22:
+  case 29:
     {
       nu = this->example_database["reynolds_number"];
       nu = 1./nu;

@@ -54,8 +54,9 @@ TimeNavierStokesSPG::TimeNavierStokesSPG(const TDomain& domain,
     for(int i = 0; i < coll->GetN_Cells(); ++i)
     {
       double dK, mK;
-      compute_SPG_parameters(coll->GetCell(i)->GetDiameter(), nu, delta0, mu0,
-                             equal_order, dK, mK);
+      compute_SPG_parameters(
+        coll->GetCell(i)->Get_hK(TDatabase::ParamDB->CELL_MEASURE), nu, delta0,
+        mu0, equal_order, dK, mK);
       min_delta = std::min(min_delta, dK);
     }
   }
