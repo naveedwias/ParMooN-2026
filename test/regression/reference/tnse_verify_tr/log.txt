@@ -1,0 +1,8 @@
+TR-AB2: t = 0.05 (step 1, |e| = 3.41553e-05, next dt = 0.05)
+estimator: eta = 0.00856042, error = 0.00098899, effectivity = 8.65572, cells = 32
+TR-AB2: t = 0.1 (step 2, |e| = 0.000118939, next dt = 0.05)
+estimator: eta = 0.00545538, error = 0.000385134, effectivity = 14.1649, cells = 32
+TR-AB2: t = 0.15 (step 3, |e| = 7.87124e-05, next dt = 0.05)
+estimator: eta = 0.00617629, error = 0.000641395, effectivity = 9.62946, cells = 32
+TR-AB2: t = 0.2 (step 4, |e| = 9.55733e-05, next dt = 0.05)
+estimator: eta = 0.00506892, error = 0.000406408, effectivity = 12.4725, cells = 32

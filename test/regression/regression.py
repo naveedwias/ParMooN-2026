@@ -1,0 +1,208 @@
+#!/usr/bin/env python3
+"""
+Regression tests for the adaptive / time-dependent programs.
+
+Each case runs a short version of one of the shipped inputs and compares all
+numbers of the program's table file and of selected result lines of the log
+(RESULTS_LINE, 'estimator:', 'TR-AB2: t =') with frozen references in
+test/regression/reference/<case>/. Used to check that refactorings (moving
+code and examples) do not change any result.
+
+  python3 regression.py --build ../../../build            # run and compare
+  python3 regression.py --build ../../../build --update   # (re)create references
+  python3 regression.py --build ... --cases tnse_ex1 bdf2_sv_cip_ex25
+
+Exit code 0 if every case agrees within --rtol (default 1e-10) / --atol.
+"""
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import sys
+import tempfile
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+REPO = os.path.dirname(os.path.dirname(HERE))
+INP = os.path.join(REPO, "data", "input_files")
+REF = os.path.join(HERE, "reference")
+
+# name: (executable, base input, overrides, table key)
+CASES = {
+    # transient Navier-Stokes, SUPG/PSPG/grad-div, TR-AB2 (examples 23, 24, 28)
+    "tnse_verify_tr": ("parMooN_tnse2d_adaptive_spg_SEQUENTIAL", "tnse2d_adaptive_spg_verify_time.dat",
+                       {"time_end": "0.2", "time_step_length": "0.05"}, "tnse_write_table"),
+    "tnse_ex1": ("parMooN_tnse2d_adaptive_spg_SEQUENTIAL", "tnse2d_adaptive_spg_ex1.dat",
+                 {"refinement_n_initial_steps": "3", "time_end": "0.01", "output_write_vtk": "false"},
+                 "tnse_write_table"),
+    "tnse_ex1_adaptive_dt": ("parMooN_tnse2d_adaptive_spg_SEQUENTIAL", "tnse2d_adaptive_spg_ex1.dat",
+                             {"refinement_n_initial_steps": "3", "time_end": "0.15", "trab2_adaptive": "true",
+                              "tnse_initial_value": "consistent_projection", "output_write_vtk": "false"},
+                             "tnse_write_table"),
+    "tnse_ex2_adaptive": ("parMooN_tnse2d_adaptive_spg_SEQUENTIAL", "tnse2d_adaptive_spg_ex2.dat",
+                          {"refinement_n_initial_steps": "3", "time_end": "0.1", "output_write_vtk": "false",
+                           "output_write_ps": "false"}, "tnse_write_table"),
+    # BDF2-IMEX / CIP (examples 25, 26, 27, 28)
+    "bdf2_sv_cip_ex25": ("parMooN_tnse2d_bdf2imex_cip_SEQUENTIAL", "tnse2d_bdf2imex_cip.dat",
+                         {"time_end": "0.25", "time_step_length": "0.0625"}, "bdf2_write_table"),
+    "bdf2_lake_ex26": ("parMooN_tnse2d_bdf2imex_cip_SEQUENTIAL", "tnse2d_bdf2imex_cip.dat",
+                       {"example": "26", "pressure_amplitude": "100.0", "time_end": "0.25",
+                        "time_step_length": "0.0625"}, "bdf2_write_table"),
+    "bdf2_shear_ex27": ("parMooN_tnse2d_bdf2imex_cip_SEQUENTIAL", "tnse2d_bdf2imex_shearlayer.dat",
+                        {"refinement_n_initial_steps": "3", "time_end": "0.05"}, "bdf2_write_table"),
+    "bdf2_th_ex28": ("parMooN_tnse2d_bdf2imex_cip_SEQUENTIAL", "tnse2d_bdf2imex_verify_time.dat",
+                     {"VELOCITY_SPACE": "2", "PRESSURE_SPACE": "1", "refinement_final_step_barycentric": "false",
+                      "refinement_n_initial_steps": "2", "time_end": "0.2", "time_step_length": "0.05"},
+                     "bdf2_write_table"),
+    # steady Oseen, SUPG/PSPG/grad-div estimator (examples 21, 22)
+    "oseen_ex21": ("parMooN_oseen2d_spg_adaptive_SEQUENTIAL", "oseen2d_spg_aaj2026.dat",
+                   {"refinement_max_n_adaptive_steps": "3"}, "spg_write_table"),
+    "oseen_ex22_adaptive": ("parMooN_oseen2d_spg_adaptive_SEQUENTIAL", "oseen2d_spg_aaj2026.dat",
+                            {"example": "22", "reynolds_number": "1.0e6", "spg_uniform_refinement": "false",
+                             "refinement_n_initial_steps": "2", "refinement_max_n_adaptive_steps": "4",
+                             "spg_estimator_sigma0": "0.0"}, "spg_write_table"),
+    # convection-diffusion (FGJN14 examples 11 and 15)
+    "cd_ex2": ("parMooN_tcd2d_adaptive_tr_SEQUENTIAL", "tcd2d_adaptive_tr_ex2.dat",
+               {"refinement_n_initial_steps": "4", "time_end": "0.1", "output_write_vtk": "false"},
+               "tcd_write_table"),
+    "cd_ex4_adaptive": ("parMooN_tcd2d_adaptive_tr_SEQUENTIAL", "tcd2d_adaptive_tr_ex4.dat",
+                        {"time_end": "0.01", "output_write_vtk": "false", "output_write_ps": "false"},
+                        "tcd_write_table"),
+    # the monolithic drivers kept for reference
+    "old_tnse_ex1": ("parMooN_tnse2d_spg_adaptive_SEQUENTIAL", "tnse2d_spg_ex1.dat",
+                     {"refinement_n_initial_steps": "3", "time_end": "0.01", "output_write_vtk": "false"},
+                     "tnse_write_table"),
+}
+
+LOG_PATTERNS = ("RESULTS_LINE", "estimator:", "TR-AB2: t =")
+NUM = re.compile(r"[-+]?(?:\d+\.\d*|\.\d+|\d+)(?:[eE][-+]?\d+)?|[-+]?(?:nan|inf)")
+
+
+def set_param(lines, key, value):
+    pat = re.compile(rf"^\s*{re.escape(key)}\s*:\s*(.*)$")
+    out, done = [], False
+    for ln in lines:
+        m = pat.match(ln)
+        if m:
+            if not done:
+                old, v = m.group(1).strip(), str(value)
+                if re.fullmatch(r"[-+]?\d+", v) and re.search(r"[.eE]", old) \
+                        and re.fullmatch(r"[-+]?[\d.]+([eE][-+]?\d+)?", old):
+                    v += ".0"
+                out.append(f"{key}: {v}")
+                done = True
+        else:
+            out.append(ln)
+    if not done:
+        out.append(f"{key}: {value}")
+    return out
+
+
+def prepare_input(base, overrides, run_dir, table_key):
+    lines = open(os.path.join(INP, base)).read().splitlines()
+    for k, v in overrides.items():
+        lines = set_param(lines, k, v)
+    lines = set_param(lines, "outfile", "run.out")
+    lines = set_param(lines, table_key, "table.txt")
+    for i, ln in enumerate(lines):
+        m = re.match(r"^\s*geo_file\s*:\s*(.+)$", ln)
+        if m and "data/mesh/" in m.group(1):
+            p = m.group(1).strip()
+            lines[i] = "geo_file: " + os.path.join(REPO, p[p.index("data/mesh/"):])
+        m = re.match(r"^\s*output_directory\s*:\s*(.+)$", ln)
+        if m:
+            os.makedirs(os.path.join(run_dir, m.group(1).strip()), exist_ok=True)
+    path = os.path.join(run_dir, "input.dat")
+    open(path, "w").write("\n".join(lines) + "\n")
+    return path
+
+
+def extract(run_dir):
+    """numbers of the table and of the selected log lines"""
+    res = {}
+    t = os.path.join(run_dir, "table.txt")
+    res["table"] = [ln for ln in open(t).read().splitlines() if ln.strip()] if os.path.exists(t) else []
+    o = os.path.join(run_dir, "run.out")
+    log = open(o, errors="replace").read().splitlines() if os.path.exists(o) else []
+    res["log"] = [ln.strip() for ln in log if ln.strip().startswith(LOG_PATTERNS)]
+    return res
+
+
+def compare_lines(ref, new, rtol, atol, what):
+    if len(ref) != len(new):
+        return [f"{what}: {len(new)} lines instead of {len(ref)}"]
+    msgs = []
+    for i, (a, b) in enumerate(zip(ref, new)):
+        if NUM.sub("#", a) != NUM.sub("#", b):
+            msgs.append(f"{what} line {i}: text differs\n    ref: {a}\n    new: {b}")
+            continue
+        for x, y in zip(NUM.findall(a), NUM.findall(b)):
+            fx, fy = float(x), float(y)
+            if fx != fx and fy != fy:
+                continue
+            if abs(fx - fy) > atol + rtol*max(abs(fx), abs(fy)):
+                msgs.append(f"{what} line {i}: {x} -> {y}\n    ref: {a}\n    new: {b}")
+                break
+        if len(msgs) > 5:
+            break
+    return msgs
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("--build", required=True, help="build directory with the executables")
+    ap.add_argument("--cases", nargs="*", default=None, help="subset of the cases")
+    ap.add_argument("--update", action="store_true", help="write the references")
+    ap.add_argument("--rtol", type=float, default=1e-10)
+    ap.add_argument("--atol", type=float, default=1e-14)
+    ap.add_argument("--keep", action="store_true", help="keep the run directories")
+    args = ap.parse_args()
+    names = args.cases or list(CASES)
+    failed = []
+    for name in names:
+        exe, base, over, tkey = CASES[name]
+        exe_path = os.path.join(os.path.abspath(args.build), exe)
+        if not os.path.exists(exe_path):
+            print(f"{name:24s} SKIPPED (no {exe})")
+            continue
+        run_dir = tempfile.mkdtemp(prefix=f"reg_{name}_")
+        inp = prepare_input(base, over, run_dir, tkey)
+        p = subprocess.run([exe_path, inp], cwd=run_dir, stdout=subprocess.PIPE,
+                           stderr=subprocess.STDOUT, timeout=1800)
+        res = extract(run_dir)
+        ref_dir = os.path.join(REF, name)
+        if p.returncode != 0:
+            print(f"{name:24s} FAILED (exit code {p.returncode}), see {run_dir}")
+            failed.append(name)
+            continue
+        if args.update:
+            os.makedirs(ref_dir, exist_ok=True)
+            open(os.path.join(ref_dir, "table.txt"), "w").write("\n".join(res["table"]) + "\n")
+            open(os.path.join(ref_dir, "log.txt"), "w").write("\n".join(res["log"]) + "\n")
+            print(f"{name:24s} reference written ({len(res['table'])} table lines, {len(res['log'])} log lines)")
+        else:
+            if not os.path.isdir(ref_dir):
+                print(f"{name:24s} NO REFERENCE")
+                failed.append(name)
+                continue
+            ref_t = [l for l in open(os.path.join(ref_dir, "table.txt")).read().splitlines() if l.strip()]
+            ref_l = [l for l in open(os.path.join(ref_dir, "log.txt")).read().splitlines() if l.strip()]
+            msgs = compare_lines(ref_t, res["table"], args.rtol, args.atol, "table") \
+                + compare_lines(ref_l, res["log"], args.rtol, args.atol, "log")
+            if msgs:
+                print(f"{name:24s} DIFFERS")
+                for m in msgs[:6]:
+                    print("   " + m)
+                failed.append(name)
+            else:
+                print(f"{name:24s} ok ({len(ref_t)} table lines, {len(ref_l)} log lines)")
+        if not args.keep and name not in failed:
+            shutil.rmtree(run_dir, ignore_errors=True)
+    if failed:
+        print("FAILED:", " ".join(failed))
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
