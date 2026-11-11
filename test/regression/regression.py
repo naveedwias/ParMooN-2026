@@ -34,7 +34,7 @@ REF = os.path.join(HERE, "reference")
 
 # name: (executable, base input, overrides, table key)
 CASES = {
-    # transient Navier-Stokes, SUPG/PSPG/grad-div, TR-AB2 (examples 23, 24, 28)
+    # transient Navier-Stokes, SUPG/PSPG/grad-div, TR-AB2 (examples 23, 28, 32)
     "tnse_verify_tr": ("parMooN_tnse2d_adaptive_spg_SEQUENTIAL", "tnse2d_adaptive_spg_verify_time.dat",
                        {"time_end": "0.2", "time_step_length": "0.05"}, "tnse_write_table"),
     "tnse_ex1": ("parMooN_tnse2d_adaptive_spg_SEQUENTIAL", "tnse2d_adaptive_spg_ex1.dat",
@@ -45,8 +45,8 @@ CASES = {
                               "tnse_initial_value": "consistent_projection", "output_write_vtk": "false"},
                              "tnse_write_table"),
     "tnse_ex2_adaptive": ("parMooN_tnse2d_adaptive_spg_SEQUENTIAL", "tnse2d_adaptive_spg_ex2.dat",
-                          {"refinement_n_initial_steps": "3", "time_end": "0.1", "output_write_vtk": "false",
-                           "output_write_ps": "false"}, "tnse_write_table"),
+                          {"refinement_n_initial_steps": "3", "time_end": "0.05", "output_write_vtk": "false",
+                           "output_write_ps": "false", "adaptive_max_cell_level": "6"}, "tnse_write_table"),
     # BDF2-IMEX / CIP (examples 25, 26, 27, 28)
     "bdf2_sv_cip_ex25": ("parMooN_tnse2d_bdf2imex_cip_SEQUENTIAL", "tnse2d_bdf2imex_cip.dat",
                          {"time_end": "0.25", "time_step_length": "0.0625"}, "bdf2_write_table"),
@@ -109,6 +109,10 @@ VERIFY = {
                               "nonlinloop_epsilon": "1e-13"},
                              "tnse_write_table", {"error": 1e-10, "eta": 1e-9, "L2(u)": 1e-12,
                                                   "L2(p)": 1e-10}),
+    "exact_tr_galerkin": ("parMooN_tnse2d_adaptive_spg_SEQUENTIAL", "tnse2d_adaptive_spg_verify_time.dat",
+                          {"example": "30", "time_end": "0.3", "time_step_length": "0.05",
+                           "nonlinloop_epsilon": "1e-13", "spg_delta0": "0.0", "spg_mu0": "0.0"},
+                          "tnse_write_table", {"L2(u)": 1e-12, "L2(p)": 1e-11}),
     "exact_tr_mesh_alternation": ("parMooN_tnse2d_adaptive_spg_SEQUENTIAL",
                                   "tnse2d_adaptive_spg_verify_time.dat",
                                   {"example": "30", "time_end": "0.5", "time_step_length": "0.05",

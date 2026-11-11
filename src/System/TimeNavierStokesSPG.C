@@ -349,19 +349,33 @@ void TimeNavierStokesSPG::initial_time_derivative(double time)
   TDatabase::TimeDB->CURRENTTIME = time;
   ns.assemble_linear_terms();        // A^{U0}, L (b = U0)
   assemble_mass(M, db);              // M^{U0}
-  // S: velocity blocks and PSPG rows from M, pressure columns and the C
-  // block from A
+  // With PSPG (delta_0 > 0) the pressure rows of the semidiscrete problem
+  // contain d_t u and p,  M_pu Ud + C P = L_p - A_pu U0,  and determine P:
+  //   S = [M_uu  B^T; M_pu  C],  rhs = L - A (U0, 0).
+  // Without PSPG (delta_0 = 0, Galerkin pressure rows) M_pu and C vanish, the
+  // pressure rows are the constraint B u = 0 on u alone and that system is
+  // singular; (Ud, P) then follow from the differentiated constraint B Ud = 0:
+  //   S = [M_uu  B^T; B  0],  rhs = (L_u - A_uu U0, 0)
+  // (the Dirichlet entries of Ud carry the derivative of the boundary data, so
+  // B Ud = 0 includes their contribution).
+  const bool pspg = (double) db["spg_delta0"] > 0.;
   S = M;
   auto sb = S.get_blocks_uniquely();
   auto ab = ns.get_matrix().get_blocks_uniquely();
   for(size_t i : {2, 5, 8}) // B1T, B2T, C
     *sb[i] = *ab[i];
-  // right-hand side: L - A (U0, 0)
+  if(!pspg)
+    for(size_t i : {6, 7}) // B1, B2: the divergence constraint
+      *sb[i] = *ab[i];
+  // right-hand side: L - A (U0, 0); without PSPG the pressure rows are 0
   BlockVector x(ns.get_solution());
   for(size_t i = 0; i < n_p; ++i)
     x.get_entries()[2*n_u + i] = 0.;
   rhs = ns.get_rhs();
   ns.get_matrix().apply_scaled_add(x, rhs, -1.);
+  if(!pspg)
+    for(size_t i = 0; i < n_p; ++i)
+      rhs.get_entries()[2*n_u + i] = 0.;
   // Dirichlet rows: the time derivative of the boundary data (zero for
   // time-independent data); the interior rows couple to it through M
   set_dirichlet_time_derivative(time, rhs);
@@ -621,6 +635,7 @@ std::vector<std::pair<std::string, double>> TimeNavierStokesSPG::compute_error_c
   std::vector<std::pair<std::string, double>> cols = {
     {"L2(u)", std::sqrt(l2u)}, {"H1(u)", std::sqrt(h1u)},
     {"L2(div_u)", div}, {"L2(p)", ep[0]}};
+  flow_quantities(cols);
   if(last_contributions.empty()) // before the first estimate: names only
     for(const char* n : {"eta_res", "eta_div", "eta_F", "eta_delta", "eta_mu",
                          "err_grad", "err_div", "err_supg"})
@@ -628,6 +643,106 @@ std::vector<std::pair<std::string, double>> TimeNavierStokesSPG::compute_error_c
   else
     cols.insert(cols.end(), last_contributions.begin(), last_contributions.end());
   return cols;
+}
+
+void TimeNavierStokesSPG::flow_quantities(
+  std::vector<std::pair<std::string, double>>& cols)
+{
+  auto space = ns.get_velocity_space();
+  const TCollection* coll = space->GetCollection();
+  const Example_NSE2D& example = ns.get_example();
+  const bool have_exact = example.get_exact().size() >= 2;
+  int degree = db.contains("spg_error_quad_degree")
+               ? (int) db["spg_error_quad_degree"] : 19;
+  int n_qp;
+  const double *w, *xq, *yq;
+  QuadratureFormulaDatabase::qf_from_degree(degree, BFRefElements::BFUnitTriangle)
+    ->GetFormulaData(n_qp, w, xq, yq);
+  double wsum = 0.;
+  for(int q = 0; q < n_qp; ++q)
+    wsum += w[q];
+  const double* U = ns.get_solution().get_entries();
+  double E_h = 0., E = 0., Z_h = 0., Z = 0., eZ = 0.;
+  double om_min = 1e300, om_max = -1e300, ome_min = 1e300, ome_max = -1e300;
+  double cw_h = 0., cx_h = 0., cy_h = 0., cw = 0., cx = 0., cy = 0.;
+  std::vector<double> phi(MaxN_BaseFunctions2D), dxi(MaxN_BaseFunctions2D),
+                      deta(MaxN_BaseFunctions2D);
+  for(int i = 0; i < coll->GetN_Cells(); ++i)
+  {
+    const TBaseCell* cell = coll->GetCell(i);
+    double v[6];
+    for(int k = 0; k < 3; ++k)
+    {
+      v[2*k] = cell->GetVertex(k)->GetX();
+      v[2*k+1] = cell->GetVertex(k)->GetY();
+    }
+    // affine map x = v0 + J (xi, eta): J = [[x1-x0, x2-x0], [y1-y0, y2-y0]]
+    const double j11 = v[2]-v[0], j12 = v[4]-v[0], j21 = v[3]-v[1], j22 = v[5]-v[1];
+    const double det = j11*j22 - j12*j21;
+    const double area = 0.5*std::abs(det);
+    const FiniteElement& fe = space->get_fe(i);
+    const BaseFunctions* bf = fe.GetBaseFunct();
+    const int n_loc = fe.GetN_DOF();
+    const int* DOF = space->GetGlobalDOF(i);
+    for(int q = 0; q < n_qp; ++q)
+    {
+      const double x = v[0] + xq[q]*j11 + yq[q]*j12;
+      const double y = v[1] + xq[q]*j21 + yq[q]*j22;
+      bf->GetDerivatives(MultiIndex2D::D00, xq[q], yq[q], phi.data());
+      bf->GetDerivatives(MultiIndex2D::D10, xq[q], yq[q], dxi.data());
+      bf->GetDerivatives(MultiIndex2D::D01, xq[q], yq[q], deta.data());
+      double u1 = 0., u2 = 0., u1y = 0., u2x = 0.;
+      for(int k = 0; k < n_loc; ++k)
+      {
+        // physical gradient: J^{-T} (d/dxi, d/deta)
+        const double gx = ( j22*dxi[k] - j21*deta[k])/det;
+        const double gy = (-j12*dxi[k] + j11*deta[k])/det;
+        const double a = U[DOF[k]], b = U[n_u + DOF[k]];
+        u1 += a*phi[k];
+        u2 += b*phi[k];
+        u1y += a*gy;
+        u2x += b*gx;
+      }
+      const double om_h = u2x - u1y;
+      const double wq = w[q]*area/wsum;
+      E_h += wq*(u1*u1 + u2*u2);
+      Z_h += wq*om_h*om_h;
+      om_min = std::min(om_min, om_h);
+      om_max = std::max(om_max, om_h);
+      cw_h += wq*std::abs(om_h);
+      cx_h += wq*std::abs(om_h)*x;
+      cy_h += wq*std::abs(om_h)*y;
+      if(have_exact)
+      {
+        double e1[4], e2[4];
+        example.get_exact(0)(x, y, e1);
+        example.get_exact(1)(x, y, e2);
+        const double om = e2[1] - e1[2];
+        E += wq*(e1[0]*e1[0] + e2[0]*e2[0]);
+        Z += wq*om*om;
+        eZ += wq*(om_h - om)*(om_h - om);
+        ome_min = std::min(ome_min, om);
+        ome_max = std::max(ome_max, om);
+        cw += wq*std::abs(om);
+        cx += wq*std::abs(om)*x;
+        cy += wq*std::abs(om)*y;
+      }
+    }
+  }
+  const double ch_x = cw_h > 0. ? cx_h/cw_h : 0., ch_y = cw_h > 0. ? cy_h/cw_h : 0.;
+  const double ce_x = cw > 0. ? cx/cw : 0., ce_y = cw > 0. ? cy/cw : 0.;
+  cols.push_back({"E_kin", 0.5*E_h});
+  cols.push_back({"E_kin_exact", 0.5*E});
+  cols.push_back({"enstrophy", 0.5*Z_h});
+  cols.push_back({"enstrophy_exact", 0.5*Z});
+  cols.push_back({"L2(omega)", std::sqrt(eZ)});
+  cols.push_back({"omega_min", om_min});
+  cols.push_back({"omega_max", om_max});
+  cols.push_back({"omega_min_exact", have_exact ? ome_min : 0.});
+  cols.push_back({"omega_max_exact", have_exact ? ome_max : 0.});
+  cols.push_back({"centroid_x", ch_x});
+  cols.push_back({"centroid_y", ch_y});
+  cols.push_back({"centroid_err", have_exact ? std::hypot(ch_x - ce_x, ch_y - ce_y) : 0.});
 }
 
 void TimeNavierStokesSPG::copy_time_state(const AdaptiveTimeSystem& old)

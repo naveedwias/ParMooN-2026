@@ -1,11 +1,11 @@
-[ transient SUPG/PSPG/grad-div Navier-Stokes, Example 1 (smooth) ]
+[ transient SUPG/PSPG/grad-div Navier-Stokes (deprecated monolithic program), Example 2: translating vortex (example 32) ]
 outfile: tnse2d_ex2.out
 boundary_file: Default_UnitSquare
 geo_file: TwoTriangles
 refinement_n_initial_steps: 4
 conforming_closure: true
 problem_type: 5
-example: 24
+example: 32
 verbosity: 1
 output_write_vtk: false
 output_write_ps: true
@@ -21,12 +21,12 @@ solver_type: direct
 direct_solver_type: umfpack
 VELOCITY_SPACE: 2
 PRESSURE_SPACE: 1
-reynolds_number: 1000.0
+reynolds_number: 1.0e5
 NSTYPE: 14
 LAPLACETYPE: 0
 NSE_NONLINEAR_FORM: 0
 time_start: 0.0
-time_end: 2.0
+time_end: 0.5
 time_step_length: 1.0e-3
 tnse_time_adaptive: true
 tnse_tolt: 1.0e-5

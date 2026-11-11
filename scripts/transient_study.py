@@ -225,8 +225,9 @@ def plot_tables(args, runs):
     plt.rcParams.update({"font.size": 9, "axes.grid": True, "grid.alpha": 0.3})
     colors = plt.cm.tab10(np.linspace(0, 1, 10))
 
-    if any(column(t, "L2(u)") is not None for _, t in runs):
-        # BDF2-IMEX tables
+    if any(column(t, "F_m") is not None for _, t in runs):
+        # BDF2-IMEX tables (the adaptive programs write L2(u) as well, so the
+        # energy column F_m identifies them)
         panels = [("L2(u)", r"$\|u-u_h\|_0$", True), ("L2(p)", r"$\|p-p_h\|_0$", True),
                   ("div(u)", r"$\|\nabla\cdot u_h\|_0$", True), ("F_m", r"energy $F^m$", False)]
     else:
@@ -315,6 +316,55 @@ def plot_meshes(args, run_dir, label):
     plt.close(fig)
     print(f"wrote {out}")
 
+
+
+def plot_flow(args, runs):
+    """Flow quantities over time (transient NSE tables with the columns of
+    TimeNavierStokesSPG::flow_quantities): enstrophy and kinetic energy relative
+    to the exact values, vorticity extrema against the exact ones (over- and
+    undershoots = spurious oscillations), L2 error of the vorticity and the
+    error of the vortex position (|omega|-weighted centroid)."""
+    if not all(column(t, "enstrophy") is not None for _, t in runs):
+        return
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    colors = plt.rcParams["axes.prop_cycle"].by_key()["color"]
+    fig, axs = plt.subplots(2, 3, figsize=(13, 7))
+    for i, (label, tab) in enumerate(runs):
+        c = colors[i % len(colors)]
+        tt = tab["time"]
+        lab = label.replace("VELOCITY_SPACE/PRESSURE_SPACE", "pair")
+        ex = tab["enstrophy_exact"]
+        axs[0][0].plot(tt, tab["enstrophy"]/np.where(ex != 0, ex, np.nan), color=c, label=lab)
+        ee = tab["E_kin_exact"]
+        axs[0][1].plot(tt, (tab["E_kin"] - ee)/np.where(ee != 0, ee, np.nan), color=c)
+        axs[0][2].plot(tt, tab["omega_max"], color=c)
+        axs[0][2].plot(tt, tab["omega_min"], color=c, ls="-")
+        if i == 0:
+            axs[0][2].plot(tt, tab["omega_max_exact"], "k--", lw=0.8, label="exact")
+            axs[0][2].plot(tt, tab["omega_min_exact"], "k--", lw=0.8)
+        axs[1][0].semilogy(tt, tab["L2(omega)"], color=c)
+        axs[1][1].semilogy(tt, np.maximum(tab["centroid_err"], 1e-16), color=c)
+        axs[1][2].semilogy(tt, tab["L2(u)"], color=c, label=r"$L^2(u)$" if i == 0 else None)
+        axs[1][2].semilogy(tt, tab["L2(p)"], color=c, ls=":", label=r"$L^2(p)$" if i == 0 else None)
+    axs[0][0].set_title("enstrophy / exact")
+    axs[0][1].set_title("(E_kin - exact) / exact")
+    axs[0][2].set_title(r"$\min\omega_h$, $\max\omega_h$ (dashed: exact)")
+    axs[1][0].set_title(r"$\|\omega-\omega_h\|_0$")
+    axs[1][1].set_title("error of the vortex position")
+    axs[1][2].set_title(r"$\|u-u_h\|_0$ (solid), $\|p-p_h\|_0$ (dotted)")
+    for ax in axs.flat:
+        ax.set_xlabel("t")
+        ax.grid(True, alpha=0.3)
+    axs[0][0].legend(fontsize=7)
+    axs[0][2].legend(fontsize=7)
+    fig.suptitle(args.name)
+    fig.tight_layout()
+    out = os.path.join(args.outdir, f"{args.name}_flow.{args.format}")
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    print(f"wrote {out}")
 
 
 def spatial_summary(args, runs):
@@ -466,7 +516,7 @@ ERRPART = ["err_grad", "err_div", "err_supg"]
 ERRPART_LABEL = {"err_grad": r"$\nu^{1/2}|e_u|_1$",
                  "err_div": r"$(\sum\mu_K\|\nabla\cdot e_u\|^2)^{1/2}$",
                  "err_supg": r"$(\sum\delta_K\|(b\cdot\nabla)e_u+\nabla e_p\|^2)^{1/2}$"}
-NORMS = ["L2(u)", "H1(u)", "L2(div_u)", "L2(p)"]
+NORMS = ["L2(u)", "H1(u)", "L2(div_u)", "L2(p)", "L2(omega)", "centroid_err"]
 
 
 def convergence_study(args, runs, combos):
@@ -767,6 +817,7 @@ def main():
                     plot_meshes(args, run_dir, label)
     if runs:
         plot_tables(args, runs)
+        plot_flow(args, runs)
         spatial_summary(args, runs)
         temporal_summary(args, runs)
         convergence_study(args, runs, run_combos)

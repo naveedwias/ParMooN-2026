@@ -57,7 +57,8 @@ class TimeNavierStokesSPG : public AdaptiveTimeSystem
     double minimal_step() const override { return dt_alpha*min_delta; }
     /// @brief L2(u), H1(u) (seminorm), L2(div u), L2(p) at the current time,
     /// the contributions of the estimator (eta_res, eta_div, eta_F, eta_delta,
-    /// eta_mu) and the parts of the error in the SPG norm of the last estimate
+    /// eta_mu), the parts of the error in the SPG norm of the last estimate and
+    /// the flow quantities (see flow_quantities())
     std::vector<std::pair<std::string, double>> error_columns() override;
     /// @brief vtk output through NavierStokes (velocity, pressure) plus the
     /// discrete time derivative
@@ -91,6 +92,12 @@ class TimeNavierStokesSPG : public AdaptiveTimeSystem
     bool has_est;
     std::vector<std::pair<std::string, double>> cached_columns;
     std::vector<std::pair<std::string, double>> compute_error_columns();
+    /// @brief quantities of interest by quadrature (degree
+    /// spg_error_quad_degree), discrete and exact on the same points:
+    /// kinetic energy 1/2 ||u||^2, enstrophy 1/2 ||omega||^2, ||omega_h -
+    /// omega||, min/max of omega, the |omega|-weighted centroid (position of a
+    /// vortex) and its distance to the exact one
+    void flow_quantities(std::vector<std::pair<std::string, double>>& cols);
     void l2_projection_of_initial_velocity();
     /// contributions of the last estimate (name, value)
     std::vector<std::pair<std::string, double>> last_contributions;

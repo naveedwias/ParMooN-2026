@@ -71,9 +71,9 @@ namespace tnse_aaj_smooth            // case 23
 {
 #include "TNSE_2D/TNSE_AAJ_smooth.h"
 }
-namespace tnse_aaj_layers            // case 24
+namespace tnse_translating_vortex    // case 32 (Example 2 of the manuscript)
 {
-#include "TNSE_2D/TNSE_AAJ_layers.h"
+#include "TNSE_2D/TNSE_translating_vortex.h"
 }
 namespace bdf2imex_smooth            // case 25
 {
@@ -115,9 +115,10 @@ CoeffFct2D bdf2imex_stokes_projection_coeffs(int example)
     case 28: return tnse_polynomial_in_space::StokesProjectionCoeffs;
     case 30: return tnse_poly_quadratic_time::StokesProjectionCoeffs;
     case 31: return tnse_poly_linear_time::StokesProjectionCoeffs;
+    case 32: return tnse_translating_vortex::StokesProjectionCoeffs;
     default:
       ErrThrow("bdf2imex_stokes_projection_coeffs: no Stokes projection data "
-               "for example ", example, " (available: 25-28, 30, 31)");
+               "for example ", example, " (available: 25-28, 30-32)");
   }
 }
 
@@ -462,24 +463,6 @@ Example_TimeNSE2D::Example_TimeNSE2D(
     initialCondition.push_back( tnse_aaj_smooth::ExactP );
     break;
 
-    case 24: // transient SUPG/PSPG/grad-div Navier-Stokes, transient layers
-    exact_solution.push_back( tnse_aaj_layers::ExactU1 );
-    exact_solution.push_back( tnse_aaj_layers::ExactU2 );
-    exact_solution.push_back( tnse_aaj_layers::ExactP );
-    boundary_conditions.push_back( tnse_aaj_layers::BoundCondition );
-    boundary_conditions.push_back( tnse_aaj_layers::BoundCondition );
-    boundary_conditions.push_back( BoundConditionNoBoundCondition );
-    boundary_data.push_back( tnse_aaj_layers::U1BoundValue );
-    boundary_data.push_back( tnse_aaj_layers::U2BoundValue );
-    boundary_data.push_back( BoundaryValueHomogenous );
-    problem_coefficients = tnse_aaj_layers::LinCoeffs;
-    tnse_aaj_layers::ExampleFile();
-    // initial condition: the exact solution at time_start
-    initialCondition.push_back( tnse_aaj_layers::ExactU1 );
-    initialCondition.push_back( tnse_aaj_layers::ExactU2 );
-    initialCondition.push_back( tnse_aaj_layers::ExactP );
-    break;
-
     case 28: // transient verification: u in P2, p in P1, time-dependent Dirichlet data
     exact_solution.push_back( tnse_polynomial_in_space::ExactU1 );
     exact_solution.push_back( tnse_polynomial_in_space::ExactU2 );
@@ -585,6 +568,43 @@ Example_TimeNSE2D::Example_TimeNSE2D(
     initialCondition.push_back( tnse_poly_linear_time::ExactU2 );
     initialCondition.push_back( tnse_poly_linear_time::ExactP );
     break;
+
+    case 32: // translating vortex with compact support (manuscript, Example 2)
+    {
+      using namespace tnse_translating_vortex;
+      set_vortex_parameters(example_database["vortex_radius"],
+                            example_database["vortex_exponent"],
+                            example_database["vortex_max_swirl"],
+                            example_database["vortex_center_x"],
+                            example_database["vortex_center_y"],
+                            example_database["vortex_velocity_x"],
+                            example_database["vortex_velocity_y"]);
+      // the pressure mean and the constant boundary data need the support of
+      // the vortex inside the unit square on the whole time interval
+      double t0 = user_input_parameter_db.contains("time_start")
+                  ? (double) user_input_parameter_db["time_start"] : 0.;
+      double t1 = user_input_parameter_db.contains("time_end")
+                  ? (double) user_input_parameter_db["time_end"] : t0;
+      double d = vortex_distance_to_boundary(t0, t1);
+      if(d < 0.)
+        ErrThrow("translating vortex: the vortex leaves the unit square in [",
+                 t0, ", ", t1, "] (distance ", d, ")");
+      exact_solution.push_back( ExactU1 );
+      exact_solution.push_back( ExactU2 );
+      exact_solution.push_back( ExactP );
+      boundary_conditions.push_back( BoundCondition );
+      boundary_conditions.push_back( BoundCondition );
+      boundary_conditions.push_back( BoundConditionNoBoundCondition );
+      boundary_data.push_back( U1BoundValue );
+      boundary_data.push_back( U2BoundValue );
+      boundary_data.push_back( BoundaryValueHomogenous );
+      problem_coefficients = LinCoeffs;
+      ExampleFile();
+      initialCondition.push_back( ExactU1 );
+      initialCondition.push_back( ExactU2 );
+      initialCondition.push_back( ExactP );
+      break;
+    }
 
   default:
       ErrThrow("Unknown time-dependent Example_TimeNSE2D example!");

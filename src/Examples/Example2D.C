@@ -192,6 +192,20 @@ ParameterDatabase Example2D::default_example_database()
       "order of RT functions, e.g. degree_polynomial = 0 is a polynomial of "
       "degree 1 and in RT0. ");
       
+  db.add("vortex_radius", 0.15, "translating vortex (Example_TimeNSE2D 32): "
+         "radius R of the support", 0., 1.);
+  db.add("vortex_exponent", 4, "translating vortex: exponent m of "
+         "h = A (1 - r^2/R^2)^m (m >= 3)", 3, 20);
+  db.add("vortex_max_swirl", 1.0, "translating vortex: maximal swirl speed "
+         "(determines A)", 0., 1.e10);
+  db.add("vortex_center_x", 0.25, "translating vortex: x of the centre at t = 0",
+         -1.e10, 1.e10);
+  db.add("vortex_center_y", 0.5, "translating vortex: y of the centre at t = 0",
+         -1.e10, 1.e10);
+  db.add("vortex_velocity_x", 1.0, "translating vortex: x component of the "
+         "translation velocity U0", -1.e10, 1.e10);
+  db.add("vortex_velocity_y", 0.0, "translating vortex: y component of U0",
+         -1.e10, 1.e10);
   db.add("pressure_factor", 1.0, "Parameter used in the NSE Examples Polynomial.h,"
   	  "SinCos.h and polynomial_solution.h to scale the pressure by a certain factor ");
   return db;

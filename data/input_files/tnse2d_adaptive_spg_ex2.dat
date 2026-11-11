@@ -1,11 +1,11 @@
-[ transient SUPG/PSPG/grad-div Navier-Stokes, Example 2 of the manuscript (boundary layers, AAJ27 Section 4.2), adaptive meshes and time steps; nu = 1e-2 (reynolds_number 100) or 1e-3 (1000) ]
+[ transient SUPG/PSPG/grad-div Navier-Stokes, Example 2 of the manuscript: translating vortex with compact support (example 32), adaptive meshes and time steps; nu = 1e-3, 1e-4, 1e-5 (reynolds_number 1e3, 1e4, 1e5) ]
 outfile: tnse2d_adaptive_spg_ex2.out
 boundary_file: Default_UnitSquare
 geo_file: TwoTriangles
-refinement_n_initial_steps: 5
+refinement_n_initial_steps: 4
 conforming_closure: true
 problem_type: 5
-example: 24
+example: 32
 verbosity: 2
 output_write_vtk: true
 output_compute_errors: true
@@ -20,22 +20,22 @@ solver_type: direct
 direct_solver_type: umfpack
 VELOCITY_SPACE: 2
 PRESSURE_SPACE: 1
-reynolds_number: 100.0
+reynolds_number: 1.0e5
 NSTYPE: 14
 LAPLACETYPE: 0
 NSE_NONLINEAR_FORM: 0
 time_start: 0.0
-time_end: 2.0
+time_end: 0.5
 time_step_length: 1.0e-3
 trab2_adaptive: true
 trab2_tolt: 1.0e-5
 trab2_dt0: 1.0e-4
-trab2_dt_max: 0.02
+trab2_dt_max: 0.01
 adaptive_mesh: true
-adaptive_tol1: 1.0e-2
-adaptive_tol2: 5.0e-4
-adaptive_max_cell_level: 12
-adaptive_output_time: 0.25
+adaptive_tol1: 5.0e-3
+adaptive_tol2: 2.5e-4
+adaptive_max_cell_level: 9
+adaptive_output_time: 0.1
 tnse_write_table: tnse2d_adaptive_spg_ex2_table.txt
 trab2_averaging: periodic
 output_write_ps: true
@@ -44,3 +44,11 @@ output_directory: vtk
 tnse_initial_value: l2_projection
 # lower bound dt >= alpha min delta_K; alpha to be calibrated (manuscript, Section 4)
 tnse_dt_alpha: 0.5
+# translating vortex: u = U0 + A (1 - r^2/R^2)^m (-xi_2, xi_1), xi = x - c0 - U0 t
+vortex_radius: 0.15
+vortex_exponent: 4
+vortex_max_swirl: 1.0
+vortex_center_x: 0.25
+vortex_center_y: 0.5
+vortex_velocity_x: 1.0
+vortex_velocity_y: 0.0
