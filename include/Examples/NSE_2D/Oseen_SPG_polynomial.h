@@ -88,3 +88,30 @@ void LinCoeffs(int n_points, const double *X, const double *Y,
     coeffs[i][6] = sigma;
   }
 }
+
+// variant with a Neumann boundary (example 33): x = 1 (boundary part 1) with the
+// exact traction g = (nu grad u - p I) n = (-(x+y-1), 2 nu x) = (-y, 2 nu)
+void BoundConditionNeumann(int BdComp, double, BoundCond &cond)
+{
+  cond = (BdComp == 1) ? NEUMANN : DIRICHLET;
+}
+
+void U1BoundValueNeumann(int BdComp, double Param, double &value)
+{
+  if(BdComp == 1)
+  {
+    value = -Param;     // -(x + y - 1) at x = 1, y = Param
+    return;
+  }
+  U1BoundValue(BdComp, Param, value);
+}
+
+void U2BoundValueNeumann(int BdComp, double Param, double &value)
+{
+  if(BdComp == 1)
+  {
+    value = 2./TDatabase::ParamDB->RE_NR;   // nu * d_x u2 = 2 nu x at x = 1
+    return;
+  }
+  U2BoundValue(BdComp, Param, value);
+}

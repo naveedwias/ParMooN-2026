@@ -113,6 +113,15 @@ VERIFY = {
                           {"example": "30", "time_end": "0.3", "time_step_length": "0.05",
                            "nonlinloop_epsilon": "1e-13", "spg_delta0": "0.0", "spg_mu0": "0.0"},
                           "tnse_write_table", {"L2(u)": 1e-12, "L2(p)": 1e-11}),
+    # outflow (do-nothing/Neumann) boundary with PSPG: the initial derivative
+    # needs the differentiated constraint (the PSPG system is singular there)
+    "exact_tr_neumann": ("parMooN_tnse2d_adaptive_spg_SEQUENTIAL", "tnse2d_adaptive_spg_verify_time.dat",
+                         {"example": "34", "time_end": "0.3", "time_step_length": "0.05",
+                          "nonlinloop_epsilon": "1e-13"},
+                         "tnse_write_table", {"error": 1e-11, "L2(u)": 1e-12, "L2(p)": 1e-11}),
+    "exact_oseen_neumann": ("parMooN_oseen2d_spg_adaptive_SEQUENTIAL", "oseen2d_spg_aaj2026.dat",
+                            {"example": "33", "reynolds_number": "1.0e3", "refinement_max_n_adaptive_steps": "2"},
+                            "spg_write_table", {"error_spg": 1e-12}),
     "exact_tr_mesh_alternation": ("parMooN_tnse2d_adaptive_spg_SEQUENTIAL",
                                   "tnse2d_adaptive_spg_verify_time.dat",
                                   {"example": "30", "time_end": "0.5", "time_step_length": "0.05",

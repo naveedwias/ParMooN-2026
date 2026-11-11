@@ -70,6 +70,9 @@ class TimeNavierStokesSPG : public AdaptiveTimeSystem
     int get_n_picard() const { return n_picard; }
 
   protected:
+    /// the domain (the Galerkin divergence matrix for the initial derivative
+    /// with outflow boundaries is assembled on its finest grid)
+    const TDomain& domain;
     /// the time-dependent example: initial condition, data
     const Example_TimeNSE2D& time_example;
     /// the same functions as a stationary example for NavierStokes<2> (must be

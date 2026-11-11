@@ -6,9 +6,9 @@
 //   xi = x - c0 - U0 t,  r = |xi|,  rho = r^2/R^2,
 //   h(rho) = A (1 - rho)^m for rho < 1, 0 otherwise,
 //   u = U0 + h (-xi_2, xi_1),
-//   p = P - pbar,  P = -A^2 R^2/(2(2m+1)) (1 - rho)^(2m+1) for rho < 1, 0 otherwise,
-//   pbar = -pi A^2 R^4 / (2 (2m+1) (2m+2))   (mean of P over Omega = (0,1)^2
-//                                            while the vortex lies inside).
+//   p = P,  P = -A^2 R^2/(2(2m+1)) (1 - rho)^(2m+1) for rho < 1, 0 otherwise
+//   (p = 0 outside the vortex; with the outflow boundary below the pressure
+//   is unique, no mean value condition).
 //
 // The radial vortex is a steady solution of the Euler equations (P' = g^2/r
 // with g = r h), and the uniform translation keeps it one, so
@@ -18,8 +18,16 @@
 // from this identity); both were checked symbolically (sympy): div u = 0, the
 // Euler residual vanishes, f = -nu Laplace(u), the pressure mean.
 // u in C^(m-1), f in C^(m-3) across r = R; m >= 3 is required.
-// Dirichlet data u = U0 on the boundary (time independent while the vortex is
-// inside, checked at construction for [time_start, time_end]).
+// Boundary conditions (channel flow from left to right, U0_x > 0):
+//   u = U0 (Dirichlet) on x = 0, y = 0, y = 1;
+//   do-nothing outflow (nu grad u - p I) n = 0 on x = 1 (boundary part 1).
+// The exact solution satisfies the outflow condition exactly (grad u = 0 and
+// p = 0 outside the vortex), which is the homogeneous Neumann condition the
+// a posteriori estimator assumes; a Dirichlet condition at the outflow would
+// turn every discretization error carried there into an unresolvable
+// numerical boundary layer of width O(nu). Both need the support of the
+// vortex inside the unit square, checked at construction for
+// [time_start, time_end].
 // Vorticity omega = 2 A (1-rho)^(m-1) (1 - (m+1) rho): positive core, negative
 // ring, total circulation 0; kinetic energy and enstrophy are constant in
 // time (checked symbolically for m = 3,...,6):
@@ -58,6 +66,9 @@ void set_vortex_parameters(double R, int m, double v_max, double cx, double cy,
   vortex_c0[0] = cx;  vortex_c0[1] = cy;
   vortex_U0[0] = Ux;  vortex_U0[1] = Uy;
   vortex_A = v_max*std::sqrt(2.*m + 1.)/(R*std::pow(2.*m/(2.*m + 1.), m));
+  if(Ux <= 0.)
+    ErrThrow("translating vortex: vortex_velocity_x must be positive (x = 1 is "
+             "the do-nothing outflow boundary)");
 }
 
 /// distance of the vortex (centre +- R) to the boundary of (0,1)^2 on [t0, t1]
@@ -128,26 +139,22 @@ void ExactP(double x, double y, double *values)
   vortex_local(x, y, xi1, xi2, rho, h, h1, h2);
   const int m = vortex_m;
   const double A = vortex_A, R = vortex_R;
-  const double pbar = -M_PI*A*A*R*R*R*R/(2.*(2.*m + 1.)*(2.*m + 2.));
   if(rho < 1.)
   {
     const double s = 1. - rho;
     const double s2m = std::pow(s, 2*m);
-    values[0] = -A*A*R*R/(2.*(2.*m + 1.))*s2m*s - pbar;
+    values[0] = -A*A*R*R/(2.*(2.*m + 1.))*s2m*s;
     values[1] = A*A*s2m*xi1;
     values[2] = A*A*s2m*xi2;
     values[3] = A*A*std::pow(s, 2*m - 1)*(2.*s - 4.*m*rho);
   }
   else
-  {
-    values[0] = -pbar;
-    values[1] = values[2] = values[3] = 0.;
-  }
+    values[0] = values[1] = values[2] = values[3] = 0.;
 }
 
-void BoundCondition(int, double, BoundCond &cond)
+void BoundCondition(int BdComp, double, BoundCond &cond)
 {
-  cond = DIRICHLET;
+  cond = (BdComp == 1) ? NEUMANN : DIRICHLET; // x = 1: do-nothing outflow
 }
 
 static inline void boundary_point(int BdComp, double Param, double& x, double& y)
@@ -162,8 +169,14 @@ static inline void boundary_point(int BdComp, double Param, double& x, double& y
   }
 }
 
+// Dirichlet parts: the exact velocity; outflow (part 1): Neumann data 0
 void U1BoundValue(int BdComp, double Param, double &value)
 {
+  if(BdComp == 1)
+  {
+    value = 0.;
+    return;
+  }
   double x, y, v[4];
   boundary_point(BdComp, Param, x, y);
   ExactU1(x, y, v);
@@ -172,6 +185,11 @@ void U1BoundValue(int BdComp, double Param, double &value)
 
 void U2BoundValue(int BdComp, double Param, double &value)
 {
+  if(BdComp == 1)
+  {
+    value = 0.;
+    return;
+  }
   double x, y, v[4];
   boundary_point(BdComp, Param, x, y);
   ExactU2(x, y, v);

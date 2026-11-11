@@ -732,6 +732,20 @@ case 7:
     oseen_spg_polynomial::ExampleFile();
     break;
 
+  case 33: // as 29 with the exact traction on x = 1 (Neumann boundary)
+    exact_solution.push_back( oseen_spg_polynomial::ExactU1 );
+    exact_solution.push_back( oseen_spg_polynomial::ExactU2 );
+    exact_solution.push_back( oseen_spg_polynomial::ExactP );
+    boundary_conditions.push_back( oseen_spg_polynomial::BoundConditionNeumann );
+    boundary_conditions.push_back( oseen_spg_polynomial::BoundConditionNeumann );
+    boundary_conditions.push_back( BoundConditionNoBoundCondition );
+    boundary_data.push_back( oseen_spg_polynomial::U1BoundValueNeumann );
+    boundary_data.push_back( oseen_spg_polynomial::U2BoundValueNeumann );
+    boundary_data.push_back( BoundaryValueHomogenous );
+    problem_coefficients = oseen_spg_polynomial::LinCoeffs;
+    oseen_spg_polynomial::ExampleFile();
+    break;
+
   default:
     ErrThrow("Unknown Navier-Stokes example",  example_code, " !");
   }
@@ -781,6 +795,7 @@ double Example_NSE2D::get_nu() const
   case 21:
   case 22:
   case 29:
+  case 33:
     {
       nu = this->example_database["reynolds_number"];
       nu = 1./nu;

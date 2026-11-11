@@ -21,7 +21,8 @@
 
 TimeNavierStokesSPG::TimeNavierStokesSPG(const TDomain& domain,
   const ParameterDatabase& param_db, const Example_TimeNSE2D& example)
- : time_example(example), steady_example(example.get_stationary_example()),
+ : domain(domain), time_example(example),
+   steady_example(example.get_stationary_example()),
    ns(domain, param_db, steady_example),
    M(BlockFEMatrix::NSE2D_Type14(ns.get_velocity_space(), ns.get_pressure_space())),
    S(BlockFEMatrix::NSE2D_Type14(ns.get_velocity_space(), ns.get_pressure_space())),
@@ -358,22 +359,59 @@ void TimeNavierStokesSPG::initial_time_derivative(double time)
   //   S = [M_uu  B^T; B  0],  rhs = (L_u - A_uu U0, 0)
   // (the Dirichlet entries of Ud carry the derivative of the boundary data, so
   // B Ud = 0 includes their contribution).
+  //
+  // With PSPG and a boundary with natural (do-nothing) conditions the PSPG
+  // system is singular as well: its pressure rows determine only the
+  // combination Ud + grad P, and besides the constant pressure (removed by the
+  // mean value condition for enclosed flows) there is a null vector made of a
+  // time derivative concentrated at the outflow and a pressure field (found
+  // with the exact solution of example 34: S d = 3e-13 for |d| = 20). Then the
+  // differentiated constraint is used as well, with the divergence matrix of
+  // the Galerkin method (B Ud = 0; the PSPG rows of A contain the residual).
+  // That system is consistent (the exact solution satisfies B d_t u = 0) and
+  // regular for inf-sup stable pairs; for equal-order pairs B is not inf-sup
+  // stable and the initial derivative is not determined.
   const bool pspg = (double) db["spg_delta0"] > 0.;
+  const bool enclosed = ns.get_matrix().pressure_projection_enabled();
+  const bool equal_order = (TDatabase::ParamDB->VELOCITY_SPACE
+                            == TDatabase::ParamDB->PRESSURE_SPACE);
+  const bool constraint = !pspg || !enclosed;
+  if(constraint && pspg && equal_order)
+    ErrThrow("TimeNavierStokesSPG: the initial time derivative is not determined "
+             "for equal-order pairs with PSPG and an outflow (Neumann) boundary; "
+             "use an inf-sup stable pair");
   S = M;
   auto sb = S.get_blocks_uniquely();
   auto ab = ns.get_matrix().get_blocks_uniquely();
   for(size_t i : {2, 5, 8}) // B1T, B2T, C
     *sb[i] = *ab[i];
-  if(!pspg)
-    for(size_t i : {6, 7}) // B1, B2: the divergence constraint
-      *sb[i] = *ab[i];
-  // right-hand side: L - A (U0, 0); without PSPG the pressure rows are 0
+  if(constraint)
+  {
+    if(!pspg)
+      for(size_t i : {6, 7}) // B1, B2 of A are the Galerkin divergence matrix
+        *sb[i] = *ab[i];
+    else
+    {
+      // divergence matrix of the Galerkin method on the same spaces
+      ParameterDatabase db0(db);
+      db0["spg_delta0"] = 0.;
+      NavierStokes<2> ns0(domain, db0, steady_example);
+      ns0.get_solution() = ns.get_solution();
+      ns0.assemble_linear_terms();
+      auto gb = ns0.get_matrix().get_blocks_uniquely();
+      for(size_t i : {6, 7})
+        *sb[i] = *gb[i];
+      sb[8]->reset();          // no pressure-pressure block in B Ud = 0
+    }
+  }
+  // right-hand side: L - A (U0, 0); with the constraint B Ud = 0 the pressure
+  // rows are 0
   BlockVector x(ns.get_solution());
   for(size_t i = 0; i < n_p; ++i)
     x.get_entries()[2*n_u + i] = 0.;
   rhs = ns.get_rhs();
   ns.get_matrix().apply_scaled_add(x, rhs, -1.);
-  if(!pspg)
+  if(constraint)
     for(size_t i = 0; i < n_p; ++i)
       rhs.get_entries()[2*n_u + i] = 0.;
   // Dirichlet rows: the time derivative of the boundary data (zero for

@@ -118,3 +118,31 @@ void StokesProjectionCoeffs(int n_points, const double *X, const double *Y,
       coeffs[i][k] = 0.;
   }
 }
+
+// variant with a Neumann boundary (example 34, TNSE_POLY_TIME_DEGREE 2): x = 1
+// (boundary part 1) with the exact traction
+//   g = (nu grad u - p I) n = (-psi(t) y, 2 nu phi(t))  at x = 1
+void BoundConditionNeumann(int BdComp, double, BoundCond &cond)
+{
+  cond = (BdComp == 1) ? NEUMANN : DIRICHLET;
+}
+
+void U1BoundValueNeumann(int BdComp, double Param, double &value)
+{
+  if(BdComp == 1)
+  {
+    value = -psi(TDatabase::TimeDB->CURRENTTIME)*Param;
+    return;
+  }
+  U1BoundValue(BdComp, Param, value);
+}
+
+void U2BoundValueNeumann(int BdComp, double Param, double &value)
+{
+  if(BdComp == 1)
+  {
+    value = 2./TDatabase::ParamDB->RE_NR*phi(TDatabase::TimeDB->CURRENTTIME);
+    return;
+  }
+  U2BoundValue(BdComp, Param, value);
+}

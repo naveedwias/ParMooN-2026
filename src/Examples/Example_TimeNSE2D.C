@@ -606,6 +606,26 @@ Example_TimeNSE2D::Example_TimeNSE2D(
       break;
     }
 
+    case 34: // as 30 with the exact traction on x = 1 (Neumann boundary)
+    {
+      using namespace tnse_poly_quadratic_time;
+      exact_solution.push_back( ExactU1 );
+      exact_solution.push_back( ExactU2 );
+      exact_solution.push_back( ExactP );
+      boundary_conditions.push_back( BoundConditionNeumann );
+      boundary_conditions.push_back( BoundConditionNeumann );
+      boundary_conditions.push_back( BoundConditionNoBoundCondition );
+      boundary_data.push_back( U1BoundValueNeumann );
+      boundary_data.push_back( U2BoundValueNeumann );
+      boundary_data.push_back( BoundaryValueHomogenous );
+      problem_coefficients = LinCoeffs;
+      ExampleFile();
+      initialCondition.push_back( ExactU1 );
+      initialCondition.push_back( ExactU2 );
+      initialCondition.push_back( ExactP );
+      break;
+    }
+
   default:
       ErrThrow("Unknown time-dependent Example_TimeNSE2D example!");
   }
