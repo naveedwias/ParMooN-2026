@@ -40,6 +40,9 @@ class TimeNavierStokesSPG : public AdaptiveTimeSystem
     void restore_state() override;
     void predict(double k, double r) override;
     void tr_step(double t, double k) override;
+    /// @brief backward Euler step; restarts the derivative history of the
+    /// AB2 predictor (Ud_old = Ud)
+    void be_step(double t, double k) override;
     double predictor_difference_norm() override;
     void average_with_saved(double t_mid) override;
     void shift_derivative() override;
@@ -108,6 +111,11 @@ class TimeNavierStokesSPG : public AdaptiveTimeSystem
     int n_picard;
     size_t n_u, n_p, n_active_u;
 
+    /// @brief trapezoidal (be = false) or backward Euler (be = true) step of
+    /// length k from 'time' with Picard iteration: sigma = 2/k or 1/k,
+    ///   (sigma M^U + A^U)(U, P) = L^U + M^U (sigma U^n + [Ud^n for TR]),
+    ///   Ud = 2/k (U - U^n) - Ud^n  or  (U - U^n)/k
+    void implicit_step(double time, double k, bool be);
     void assemble_mass(BlockFEMatrix& Mat, const ParameterDatabase& la_db);
     double l2_norm_velocity(const BlockVector& v);
     void zero_velocity_dirichlet(BlockVector& v);

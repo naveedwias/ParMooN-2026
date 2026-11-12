@@ -22,6 +22,13 @@ ParameterDatabase TrapezoidalAB2::default_database()
          "Gresho et al. 2008 and de Frutos et al. 2014; on_demand: n* steps "
          "after the start and after mesh changes only (a variant, not from the "
          "literature)", {"periodic", "on_demand"});
+  db.add("trab2_first_step", "semidiscrete", "first step: semidiscrete (TR with "
+         "the time derivative from the semidiscrete problem at time_start) or "
+         "backward_euler (a backward Euler step, no initial time derivative "
+         "needed; damps inconsistent initial data)",
+         {"semidiscrete", "backward_euler"});
+  db.add("trab2_be_after_mesh_change", false, "take a backward Euler step "
+         "after every mesh change as well");
   return db;
 }
 
@@ -41,7 +48,9 @@ TrapezoidalAB2::TrapezoidalAB2(const ParameterDatabase& param_db)
   n_star = db["trab2_averaging_steps"];
   periodic_averaging = db["trab2_averaging"].is("periodic");
   averaging_pending = true;
-  n_accepted = n_rejected = n_since_avg = 0;
+  be_pending = db["trab2_first_step"].is("backward_euler");
+  be_after_mesh_change = db["trab2_be_after_mesh_change"];
+  n_accepted = n_rejected = n_since_avg = n_be = 0;
   first_step = true;
   Output::print<2>("TR-AB2: ", fixed_step ? "fixed step " : "adaptive, TOLT = ",
                    fixed_step ? k : tolt, ", averaging after ", n_star, " steps (",
@@ -59,6 +68,27 @@ double TrapezoidalAB2::advance(TrapezoidalAB2_System& sys)
      && n_accepted == 0)
     Output::warn("TR-AB2", "fixed step ", k, " is below the lower bound ",
                  sys.minimal_step(), " of the discretization");
+  if(be_pending)
+  {
+    // backward Euler step: accepted without an error estimate, the proposed
+    // step size is kept; the system restarts the derivative history itself
+    // (d_old = d), so shift_derivative() is not called
+    k = std::min(k, t_end - t);
+    sys.save_state();
+    sys.predict(k, 1.);        // only the initial iterate of the step
+    sys.be_step(t, k);
+    t += k;
+    n_accepted++;
+    n_be++;
+    k_old = k;
+    first_step = false;
+    n_since_avg = 0;
+    averaging_pending = false; // replaces a pending (on-demand) averaging
+    be_pending = false;
+    Output::print("TR-AB2: t = ", t, " (step ", n_accepted, ", backward Euler, "
+                  "next dt = ", k, ")");
+    return 0.;
+  }
   while(true)
   {
     k = std::min(k, t_end - t);

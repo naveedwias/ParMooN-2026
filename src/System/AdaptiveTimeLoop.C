@@ -151,6 +151,7 @@ void AdaptiveTimeLoop::run()
     }
   }
   Output::print("TR-AB2: ", integrator.n_accepted_steps(), " accepted and ",
-                integrator.n_rejected_steps(), " rejected steps");
+                integrator.n_rejected_steps(), " rejected steps (",
+                integrator.n_be_steps(), " backward Euler)");
 }
 #endif // __2D__

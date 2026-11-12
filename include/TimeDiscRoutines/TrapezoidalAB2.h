@@ -10,6 +10,13 @@
 //   LTE:   e = (u^{n+1} - u_p)/(3 (1 + 1/r)), accepted if |e| <= TOLT
 //   step:  k_new = factor * k (TOLT/|e|)^{1/3} (factor 0.85: de Frutos et al.),
 //          rejected steps are repeated with the reduced step
+//   first step (trab2_first_step): 'semidiscrete' starts TR with d^0 from the
+//          semidiscrete problem (system's initialize()); 'backward_euler'
+//          takes a backward Euler step instead, which needs no d^0 and damps
+//          the part of the initial value in the stiff modes (Rannacher's
+//          smoothing idea); trab2_be_after_mesh_change: also the first step
+//          after every mesh change. A BE step is accepted without an error
+//          estimate and keeps the proposed step size.
 //   stabilization: every n* accepted steps u^{n+1} <- (u^{n+1}+u^n)/2,
 //          d^{n+1} <- (d^{n+1}+d^n)/2, t <- t - k/2, k_old <- k/2
 //          ('periodic', GGS 2008 and de Frutos et al. 2014), or the same only
@@ -35,6 +42,7 @@
 #ifndef TRAPEZOIDALAB2_H
 #define TRAPEZOIDALAB2_H
 
+#include "MooNMD_Io.h"
 #include "ParameterDatabase.h"
 
 class TrapezoidalAB2_System
@@ -50,6 +58,13 @@ class TrapezoidalAB2_System
     /// @brief one TR step of length k from time t: assemble, solve, update u
     /// and d (the saved state holds u^n, d^n)
     virtual void tr_step(double t, double k) = 0;
+    /// @brief one backward Euler step of length k from time t (the saved state
+    /// holds u^n; d^n is not used): u^{n+1} from M (u^{n+1}-u^n)/k + A u^{n+1}
+    /// = f^{n+1}, d^{n+1} = (u^{n+1}-u^n)/k, and the derivative history of the
+    /// AB2 predictor restarts (d_old = d^{n+1}); systems without such a step
+    /// keep this default
+    virtual void be_step(double, double)
+    { ErrThrow("this system has no backward Euler step"); }
     /// @brief L2 norm of u - u_p (the AB2 error estimate before scaling)
     virtual double predictor_difference_norm() = 0;
     /// @brief u <- (u + u_saved)/2, d <- (d + d_saved)/2; the averaged state
@@ -81,13 +96,21 @@ class TrapezoidalAB2
     void set_previous_step(double step) { k_old = step; }
     bool is_fixed_step() const { return fixed_step; }
     int n_accepted_steps() const { return n_accepted; }
+    /// @brief number of backward Euler steps (included in n_accepted_steps())
+    int n_be_steps() const { return n_be; }
     int n_rejected_steps() const { return n_rejected; }
     double get_end_time() const { return t_end; }
     bool finished() const { return t >= t_end - 1e-12; }
 
     /// @brief the state has been perturbed (e.g. transferred to a new mesh):
-    /// in 'on_demand' mode the next averaging (after n* steps) is enabled
-    void restart_averaging() { averaging_pending = true; }
+    /// in 'on_demand' mode the next averaging (after n* steps) is enabled; with
+    /// trab2_be_after_mesh_change the next step is a backward Euler step
+    void restart_averaging()
+    {
+      averaging_pending = true;
+      if(be_after_mesh_change)
+        be_pending = true;
+    }
 
     /** @brief advance the system by one accepted step (possibly after
      * rejections). Returns the error estimate of the accepted step; the
@@ -98,8 +121,11 @@ class TrapezoidalAB2
   protected:
     double t, t_end, k, k_old;
     double tolt, k_min, k_max, factor;
-    int n_star, n_accepted, n_rejected, n_since_avg;
+    int n_star, n_accepted, n_rejected, n_since_avg, n_be;
     bool fixed_step, first_step, periodic_averaging, averaging_pending;
+    /// the next step is a backward Euler step (trab2_first_step
+    /// backward_euler, or after a mesh change with trab2_be_after_mesh_change)
+    bool be_pending, be_after_mesh_change;
 };
 
 #endif // TRAPEZOIDALAB2_H

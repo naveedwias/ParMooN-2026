@@ -245,7 +245,16 @@ void TimeNavierStokesSPG::initialize()
   else if(init != "interpolation")
     ErrThrow("tnse_initial_value must be l2_projection, consistent_projection "
              "or interpolation");
-  initial_time_derivative(t);
+  if(db.contains("trab2_first_step") && db["trab2_first_step"].is("backward_euler"))
+  {
+    // the first step is a backward Euler step, which needs no initial time
+    // derivative: Ud^0 is used only for the initial iterate of that step
+    ud.reset();
+    set_dirichlet_time_derivative(t, ud);
+    ud_old = ud;
+  }
+  else
+    initial_time_derivative(t);
 }
 
 void TimeNavierStokesSPG::assemble_mass(BlockFEMatrix& Mat, const ParameterDatabase& la_db)
@@ -459,11 +468,24 @@ void TimeNavierStokesSPG::predict(double k, double r)
 
 void TimeNavierStokesSPG::tr_step(double time, double k)
 {
+  implicit_step(time, k, false);
+}
+
+void TimeNavierStokesSPG::be_step(double time, double k)
+{
+  implicit_step(time, k, true);
+  ud_old = ud; // restart the derivative history of the AB2 predictor
+}
+
+void TimeNavierStokesSPG::implicit_step(double time, double k, bool be)
+{
   BlockVector& sol = ns.get_solution();
-  // w = 2/k U^n + Ud^n (velocity part only)
+  const double sigma = be ? 1./k : 2./k;
+  // w = sigma U^n (+ Ud^n for TR), velocity part only
   BlockVector w(sol);
   for(size_t i = 0; i < 2*n_u; ++i)
-    w.get_entries()[i] = 2./k*u_saved.get_entries()[i] + ud_saved.get_entries()[i];
+    w.get_entries()[i] = sigma*u_saved.get_entries()[i]
+                         + (be ? 0. : ud_saved.get_entries()[i]);
   for(size_t i = 0; i < n_p; ++i)
     w.get_entries()[2*n_u + i] = 0.;
   TDatabase::TimeDB->CURRENTTIME = time + k;
@@ -476,7 +498,7 @@ void TimeNavierStokesSPG::tr_step(double time, double k)
     ns.assemble_linear_terms();   // A^{U}, L with b = current iterate
     assemble_mass(M, db);
     S = ns.get_matrix();
-    S.add_blockfe_matrix(M, 2./k);
+    S.add_blockfe_matrix(M, sigma);
     rhs = ns.get_rhs();
     M.apply_scaled_add(w, rhs, 1.);
     rhs.copy_nonactive(ns.get_rhs());
@@ -502,15 +524,17 @@ void TimeNavierStokesSPG::tr_step(double time, double k)
     project_pressure();
     n_picard++;
   }
-  // Ud^{n+1} = 2/k (U^{n+1} - U^n) - Ud^n on the free dofs. On the Dirichlet
-  // dofs the derivative of the data is used: setting it to zero is only
-  // correct for time-independent data, and the trapezoidal recurrence would
-  // carry its O(k^2) error on with alternating sign into the interior rows of
-  // the following steps (5 times larger global error on the verification
-  // example 28 at k = 0.025)
+  // TR: Ud^{n+1} = 2/k (U^{n+1} - U^n) - Ud^n; BE: Ud^{n+1} = (U^{n+1} - U^n)/k,
+  // on all velocity dofs. On the Dirichlet dofs the derivative of the data is
+  // used instead: setting it to zero is only correct for time-independent
+  // data, and the trapezoidal recurrence would carry its O(k^2) error on with
+  // alternating sign into the interior rows of the following steps (5 times
+  // larger global error on the verification example 28 at k = 0.025)
   for(size_t i = 0; i < 2*n_u; ++i)
-    ud.get_entries()[i] = 2./k*(sol.get_entries()[i] - u_saved.get_entries()[i])
-                          - ud_saved.get_entries()[i];
+    ud.get_entries()[i] = be
+      ? (sol.get_entries()[i] - u_saved.get_entries()[i])/k
+      : 2./k*(sol.get_entries()[i] - u_saved.get_entries()[i])
+        - ud_saved.get_entries()[i];
   t = time + k;
   set_dirichlet_time_derivative(t, ud);
 }

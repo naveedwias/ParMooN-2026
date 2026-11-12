@@ -130,6 +130,32 @@ VERIFY = {
                                    "adaptive_coarsening": "true", "adaptive_max_cell_level": "5"},
                                   "tnse_write_table", {"error": 1e-11, "eta": 1e-9, "L2(u)": 1e-12,
                                                        "L2(p)": 1e-11}),
+    # backward Euler first step (trab2_first_step backward_euler), example 31
+    # (phi linear in time: BE and TR are both exact); the last entry checks
+    # the sequence of BE and TR steps in the log
+    "exact_be_first_fixed": ("parMooN_tnse2d_adaptive_spg_SEQUENTIAL", "tnse2d_adaptive_spg_verify_time.dat",
+                             {"example": "31", "time_end": "0.5", "nonlinloop_epsilon": "1e-13",
+                              "time_step_length": "0.05", "trab2_first_step": "backward_euler"},
+                             "tnse_write_table", {"error": 1e-11, "eta": 1e-9, "L2(u)": 1e-12, "L2(p)": 1e-11},
+                             "be_first"),
+    "exact_be_first_adaptive_dt": ("parMooN_tnse2d_adaptive_spg_SEQUENTIAL", "tnse2d_adaptive_spg_verify_time.dat",
+                                   {"example": "31", "time_end": "0.5", "nonlinloop_epsilon": "1e-13",
+                                    "trab2_adaptive": "true", "trab2_tolt": "1e-4",
+                                    "trab2_averaging_steps": "0", "tnse_dt_alpha": "0.0",
+                                    "trab2_first_step": "backward_euler"},
+                                   "tnse_write_table", {"error": 1e-10, "eta": 1e-9, "L2(u)": 1e-12,
+                                                        "L2(p)": 1e-10},
+                                   "be_first"),
+    "exact_be_mesh_alternation": ("parMooN_tnse2d_adaptive_spg_SEQUENTIAL", "tnse2d_adaptive_spg_verify_time.dat",
+                                  {"example": "31", "time_end": "0.5", "nonlinloop_epsilon": "1e-13",
+                                   "time_step_length": "0.05", "adaptive_mesh": "true",
+                                   "adaptive_tol1": "1e-30", "adaptive_tol2": "1.0",
+                                   "adaptive_coarsening": "true", "adaptive_max_cell_level": "5",
+                                   "trab2_first_step": "backward_euler",
+                                   "trab2_be_after_mesh_change": "true"},
+                                  "tnse_write_table", {"error": 1e-11, "eta": 1e-9, "L2(u)": 1e-12,
+                                                       "L2(p)": 1e-11},
+                                  "be_after_mesh_change"),
     # BDF2-IMEX/CIP, example 31 (phi linear in time), Stokes projection start
     "exact_bdf2_sv_cip": ("parMooN_tnse2d_bdf2imex_cip_SEQUENTIAL", "tnse2d_bdf2imex_verify_time.dat",
                           {"example": "31", "time_end": "0.5", "time_step_length": "0.05"},
@@ -216,6 +242,40 @@ def compare_lines(ref, new, rtol, atol, what):
     return msgs
 
 
+def check_step_sequence(out_file, mode):
+    """Sequence of backward Euler and TR steps in the log of the adaptive time
+    loop. 'be_first': step 1 is backward Euler, every later step is TR.
+    'be_after_mesh_change': step 1 and every step that follows a mesh change
+    are backward Euler, all other steps TR. Returns a list of messages."""
+    if not os.path.exists(out_file):
+        return ["no log"]
+    steps = []       # (step number, is_be, follows_mesh_change)
+    after_change = False
+    for ln in open(out_file, errors="replace"):
+        m = re.match(r"\s*TR-AB2: t = \S+ \(step (\d+), (backward Euler|\|e\|)", ln)
+        if m:
+            steps.append((int(m.group(1)), m.group(2) == "backward Euler", after_change))
+            after_change = False
+        elif ln.lstrip().startswith("adaptive:"):
+            after_change = True
+    if not steps:
+        return ["no steps in the log"]
+    msgs = []
+    if steps[0][0] != 1 or not steps[0][1]:
+        msgs.append("step 1 is not a backward Euler step")
+    for n, is_be, follows in steps[1:]:
+        want = (mode == "be_after_mesh_change" and follows)
+        if is_be != want:
+            msgs.append(f"step {n} is {'BE' if is_be else 'TR'}, expected {'BE' if want else 'TR'}")
+            break
+    n_be = sum(1 for _, b, _ in steps if b)
+    if not msgs and mode == "be_first" and n_be != 1:
+        msgs.append(f"{n_be} backward Euler steps instead of 1")
+    if not msgs and mode == "be_after_mesh_change" and n_be < 2:
+        msgs.append("no backward Euler step after a mesh change")
+    return msgs
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--build", required=True, help="build directory with the executables")
@@ -228,7 +288,8 @@ def main():
     names = args.cases or (list(CASES) + list(VERIFY))
     failed = []
     for name in [n for n in names if n in VERIFY]:
-        exe, base, over, tkey, bounds = VERIFY[name]
+        exe, base, over, tkey, bounds = VERIFY[name][:5]
+        step_check = VERIFY[name][5] if len(VERIFY[name]) > 5 else None
         exe_path = os.path.join(os.path.abspath(args.build), exe)
         if not os.path.exists(exe_path):
             print(f"{name:26s} SKIPPED (no {exe})")
@@ -256,13 +317,20 @@ def main():
             vmax = max(vals) if vals else float("nan")
             if not vmax <= bound:
                 msgs.append(f"max {col} = {vmax:.3e} > {bound:.0e}")
+        if step_check is not None:
+            msgs += check_step_sequence(os.path.join(run_dir, "run.out"), step_check)
         if msgs:
             print(f"{name:26s} NOT EXACT: " + "; ".join(msgs))
             failed.append(name)
         else:
             worst = ", ".join(f"{c} {max(abs(float(r[header.index(c)])) for r in rows if len(r) > header.index(c)):.1e}"
                               for c in bounds)
-            print(f"{name:26s} exact ({len(rows)} rows: {worst})")
+            seq = ""
+            if step_check is not None:
+                be = sum(1 for l in open(os.path.join(run_dir, "run.out"), errors="replace")
+                         if "backward Euler, next dt" in l)
+                seq = f"; steps: {be} BE, {len(rows) - be} TR, sequence ok"
+            print(f"{name:26s} exact ({len(rows)} rows: {worst}{seq})")
             if not args.keep:
                 shutil.rmtree(run_dir, ignore_errors=True)
     for name in [n for n in names if n in CASES]:
