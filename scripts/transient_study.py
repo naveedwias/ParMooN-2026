@@ -68,6 +68,19 @@ Examples
 The special key VELOCITY_SPACE/PRESSURE_SPACE sets both orders at once. Runs
 whose table file exists are skipped unless --force is given; --dry-run only
 writes the input files.
+
+Schemes of the BDF2-IMEX program (--program bdf2), as in the manuscript, set by
+labels instead of the individual parameters (--vary or --set):
+  scheme=TH            Taylor-Hood P2/P1, no grad-div, no CIP
+  scheme=TH-gd         Taylor-Hood with grad-div; gamma = graddiv_stab from --set,
+                       otherwise 1 (manuscript, smooth example)
+  scheme=SV-G          Scott-Vogelius P2/P1disc on barycentric meshes, Galerkin
+  scheme=SV-CIP-weak, SV-CIP-medium, SV-CIP-strong (SV-CIP = SV-CIP-medium)
+                       Scott-Vogelius with CIP, (delta_1, delta_2, delta_3) =
+                       s (1e-2, 1e-4, 1e-6) with s = 0.1, 1, 10
+  cip_s=s1,s2,...      CIP strength s for a parameter study (overrides the s of
+                       the scheme), e.g. --vary scheme=SV-CIP cip_s=0.1,1,10
+The run folders and the legends show the labels (SV-CIP-medium, s-10).
 """
 import argparse
 import itertools
@@ -140,12 +153,78 @@ def parse_vary(items):
     return vary
 
 
+# BDF2-IMEX schemes of the manuscript: labels for groups of parameters
+CIP_BASE = (1e-2, 1e-4, 1e-6)          # (delta_1, delta_2, delta_3) = s * CIP_BASE
+CIP_STRENGTH = {"weak": 0.1, "medium": 1.0, "strong": 10.0}
+PRESET_KEYS = ("scheme", "cip_s")
+
+
+def cip_params(s):
+    return [(f"cip_delta{i + 1}", f"{float(s) * b:.6e}") for i, b in enumerate(CIP_BASE)]
+
+
+def scheme_params(label, gamma):
+    """parameters of a scheme label (see the module docstring)"""
+    th = [("VELOCITY_SPACE", "2"), ("PRESSURE_SPACE", "1"),
+          ("refinement_final_step_barycentric", "false")]
+    sv = [("VELOCITY_SPACE", "12"), ("PRESSURE_SPACE", "-4711"),
+          ("refinement_final_step_barycentric", "true")]
+    if label == "TH":
+        return th + [("graddiv_stab", "0.0")] + cip_params(0.0)
+    if label == "TH-gd":
+        return th + [("graddiv_stab", gamma)] + cip_params(0.0)
+    if label == "SV-G":
+        return sv + [("graddiv_stab", "0.0")] + cip_params(0.0)
+    m = re.fullmatch(r"SV-CIP(?:-(weak|medium|strong))?", label)
+    if m:
+        return sv + [("graddiv_stab", "0.0")] + cip_params(CIP_STRENGTH[m.group(1) or "medium"])
+    sys.exit(f"unknown scheme '{label}': TH, TH-gd, SV-G, SV-CIP, SV-CIP-weak, "
+             f"SV-CIP-medium, SV-CIP-strong")
+
+
+def show(key, val):
+    """label of one varied parameter in legends and tables"""
+    if key == "scheme":
+        return val
+    if key == "cip_s":
+        return f"s={val}"
+    return f"{key.replace('VELOCITY_SPACE/PRESSURE_SPACE', 'pair')}={val}"
+
+
 def run_name(name, combo):
     parts = [name]
     for key, val in combo:
-        k = key.replace("/", "_").replace("VELOCITY_SPACE_PRESSURE_SPACE", "pair")
-        parts.append(f"{k}-{val.replace('/', '')}")
+        if key == "scheme":
+            parts.append(val)
+            continue
+        if key == "cip_s":
+            parts.append(f"s-{val}")
+            continue
+        if key == "VELOCITY_SPACE/PRESSURE_SPACE":
+            parts.append(f"pair-{val.replace('/', '')}")
+        elif "/" in key:
+            # several parameters at once: one key-value pair each (the values
+            # were concatenated before, e.g. '20.05' for 2 and 0.05)
+            parts.append("_".join(f"{k}-{v}" for k, v in zip(key.split("/"), val.split("/"))))
+        else:
+            parts.append(f"{key}-{val}")
     return "_".join(parts)
+
+
+def expand_presets(fixed, combo):
+    """concrete (key, value) assignments: the fixed parameters, then the varied
+    ones, with scheme labels expanded; a CIP strength cip_s (fixed or varied)
+    is applied last, so that it overrides the s of a scheme"""
+    gamma = next((v for k, v in fixed if k == "graddiv_stab"), "1.0")
+    normal, cip = [], []
+    for key, val in list(fixed) + list(combo):
+        if key == "scheme":
+            normal += scheme_params(val, gamma)
+        elif key == "cip_s":
+            cip += cip_params(val)
+        else:
+            normal.append((key, val))
+    return normal + cip
 
 
 def apply_combo(lines, combo):
@@ -586,8 +665,7 @@ def convergence_study(args, runs, combos):
         return eff[ok].min(), eff[ok].mean(), eff[ok].max()
 
     def group_label(rest):
-        return ", ".join(f"{k.replace('VELOCITY_SPACE/PRESSURE_SPACE', 'pair')}={v}"
-                         for k, v in rest) or args.name
+        return ", ".join(show(k, v) for k, v in rest) or args.name
 
     curves = []
     for rest, tabs in groups.items():
@@ -766,6 +844,9 @@ def main():
     exe = os.path.abspath(args.exe or os.path.join(".", prog["exe"]))
 
     vary = parse_vary(args.vary)
+    used = [k for k, _ in vary + parse_vary(args.set) if k in PRESET_KEYS]
+    if used and args.program != "bdf2":
+        sys.exit(f"{', '.join(used)}: scheme labels exist only for --program bdf2")
     # names: <problem>_<example> from the program and the example number
     if any("example" in k.split("/") for k, _ in vary):
         sys.exit("the example must not be varied: one study, one example "
@@ -793,7 +874,7 @@ def main():
         name = run_name(args.name, combo)
         run_dir = os.path.join(args.outdir, name)
         table = os.path.join(run_dir, f"{args.prefix}_table.txt")
-        label = ", ".join(f"{k.replace('VELOCITY_SPACE/PRESSURE_SPACE', 'pair')}={v}"
+        label = ", ".join(show(k, v)
                           for k, v in combo) or args.name
         if not args.plot_only:
             if args.base is None:
@@ -803,8 +884,7 @@ def main():
             else:
                 os.makedirs(run_dir, exist_ok=True)
                 lines = read_dat(args.base)
-                lines = apply_combo(lines, [(k, v[0]) for k, v in fixed])
-                lines = apply_combo(lines, combo)
+                lines = apply_combo(lines, expand_presets([(k, v[0]) for k, v in fixed], combo))
                 lines = set_param(lines, prog["table_key"], f"{args.prefix}_table.txt")
                 lines = set_param(lines, "outfile", f"{args.prefix}.out")
                 lines = set_param(lines, "output_basename", f"{args.prefix}_")
