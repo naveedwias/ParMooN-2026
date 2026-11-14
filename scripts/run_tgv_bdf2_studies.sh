@@ -16,8 +16,10 @@
 # Run from the build directory (next to ParMooN-2026/):
 #   bash ../ParMooN-2026/scripts/run_tgv_bdf2_studies.sh        # all
 #   bash ../ParMooN-2026/scripts/run_tgv_bdf2_studies.sh 2      # only study 2
-# Finished runs are skipped. Results: tgv_bdf2/<name>_results.txt (E_0, E_p,
-# D, L2(u(T)), H1(u(T)), max ||u_h||) and <name>_tables.pdf (errors,
+# Finished runs are skipped. Results in tnse_bdf2_taylor_green/ (folder and
+# files named <problem>_<example>, scripts/naming.py):
+# tnse_bdf2_taylor_green_<name>_results.txt (E_0, E_p, D, L2(u(T)), H1(u(T)),
+# max ||u_h||) and tnse_bdf2_taylor_green_<name>_tables.pdf (errors,
 # divergence and energy F_m over time; exact F_m = 4 pi^2 exp(-4 nu t)).
 # The rate columns of _results.txt are meaningful only in study 3 (mesh
 # refinement); in studies 1 and 2 the runs are variants, not refinements.
@@ -26,7 +28,7 @@ set -e
 E=../ParMooN-2026/data/input_files
 S=../ParMooN-2026/scripts/transient_study.py
 B=$E/tnse2d_bdf2imex_tgv.dat
-OUT=tgv_bdf2
+OUT=tnse_bdf2_taylor_green     # <problem>_<example> (scripts/naming.py)
 ONLY=${1:-all}
 run() { [ "$ONLY" = "all" ] || [ "$ONLY" = "$1" ]; }
 TH="VELOCITY_SPACE/PRESSURE_SPACE/refinement_final_step_barycentric/graddiv_stab/cip_delta1/cip_delta2/cip_delta3"

@@ -8,16 +8,39 @@ Novo 2014) made with parMooN_tcd2d_supg_adaptive:
   * plot the table (number of cells, estimator and, if available, the
     effectivity index versus time).
 
+Names (scripts/naming.py): the images are named <prefix>_<file name>, with
+<prefix> = <problem>_<example> taken from the input file (*.dat) in the folder
+of each mesh or table file (e.g. tcd_fgjn_ex3_mesh_t0.100.png); --prefix sets
+it when there is no input file, and a file name that already starts with the
+prefix is not prefixed twice.
+
 Examples:
   python3 tcd_adaptive_plots.py --mesh mesh_000120.ps mesh_000240.ps
   python3 tcd_adaptive_plots.py --mesh mesh_000240.ps --zoom 0.9 1 0 0.1
   python3 tcd_adaptive_plots.py --table ex3_table.txt
 """
 import argparse
+import glob
 import os
 import re
+import sys
 
 import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import naming  # noqa: E402
+
+
+def image_name(path, given_prefix):
+    """<prefix>_<file name without extension> (see the module docstring)"""
+    base = os.path.splitext(os.path.basename(path))[0]
+    pre = given_prefix
+    if pre is None:
+        dats = sorted(glob.glob(os.path.join(os.path.dirname(os.path.abspath(path)), "*.dat")))
+        pre = naming.prefix_from_input(dats[0]) if dats else None
+    if pre is None or base.startswith(pre + "_"):
+        return base
+    return f"{pre}_{base}"
 
 
 def read_ps_mesh(path):
@@ -105,15 +128,18 @@ def main():
     ap.add_argument("--table", nargs="*", default=[], help="table files")
     ap.add_argument("--format", default="png", choices=["png", "pdf"])
     ap.add_argument("--outdir", default=".")
+    ap.add_argument("--prefix", default=None,
+                    help="prefix of the image names (default: <problem>_<example> from "
+                         "the input file next to each mesh or table)")
     args = ap.parse_args()
     os.makedirs(args.outdir, exist_ok=True)
     for m in args.mesh:
-        base = os.path.splitext(os.path.basename(m))[0]
+        base = image_name(m, args.prefix)
         suffix = "_zoom" if args.zoom else ""
         plot_mesh(m, os.path.join(args.outdir, f"{base}{suffix}.{args.format}"),
                   args.zoom)
     for tb in args.table:
-        base = os.path.splitext(os.path.basename(tb))[0]
+        base = image_name(tb, args.prefix)
         plot_table(tb, os.path.join(args.outdir, f"{base}.{args.format}"))
 
 

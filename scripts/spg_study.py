@@ -21,9 +21,20 @@ Typical use (from the build directory):
   python3 ../ParMooN-2026/scripts/spg_study.py --study ex41 ex42 \\
       --pairs 2/1 2/2 --nu 1e-3 1e-4 1e-5 1e-6 --max-dofs 2e5
 
+Names (scripts/naming.py): each study writes into <outdir>/<problem>_<example>/
+(ex41: oseen_aaj_smooth, ex42: oseen_aaj_layers, ex51: nse_aaj_smooth, ex52:
+nse_aaj_layers; --outdir defaults to the current folder), with run folders
+<prefix>_<study>_P<k>P<l>_nu<nu>/ containing <prefix>_table.txt, _table.csv,
+_stdout.log, <prefix>.out and the input file, and the study files
+<prefix>_<study>_error.pdf, ..., <prefix>_<study>_summary.txt.
+
 Runs whose table file already exists in the output directory are not repeated,
 so the script can be restarted and the plots regenerated with --plot-only.
 """
+import sys as _sys
+import os as _os
+_sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+import naming  # noqa: E402
 import math
 import argparse
 import csv
@@ -60,7 +71,7 @@ TABLE_COLUMNS = ["level", "cells", "dofs", "h", "error_spg", "eta", "eta_res",
                  "div_uh", "rate_err", "rate_eta"]
 
 DAT_TEMPLATE = """[ ParMooN database for the SUPG/PSPG/grad-div Oseen estimator study ]
-outfile: {name}.out
+outfile: {outfile}
 boundary_file: Default_UnitSquare
 geo_file: TwoTriangles
 refinement_n_initial_steps: {initial}
@@ -73,7 +84,7 @@ verbosity: 1
 output_write_vtk: {vtk}
 output_directory: {vtk_dir}
 output_compute_errors: true
-output_basename: {name}
+output_basename: {basename}
 space_discretization_type: supg_pspg_graddiv
 spg_delta0: {delta0}
 spg_mu0: {mu0}
@@ -141,11 +152,28 @@ def write_csv(path, rows):
 # ---------------------------------------------------------------------------
 # running
 # ---------------------------------------------------------------------------
+def study_prefix(study):
+    """<problem>_<example> of a study (scripts/naming.py), e.g. oseen_aaj_smooth"""
+    cfg = STUDIES[study]
+    return naming.prefix(naming.steady_problem(cfg["problem_type"]), cfg["example"])
+
+
+def study_dir(args, study):
+    """folder of a study: <outdir>/<problem>_<example>"""
+    return os.path.join(args.outdir, study_prefix(study))
+
+
+def run_dir(args, study, pair, nu):
+    pre = study_prefix(study)
+    return os.path.join(study_dir(args, study), f"{pre}_{run_name(study, pair, nu)}")
+
+
 def run_one(args, study, pair, nu):
     cfg = STUDIES[study]
+    pre = study_prefix(study)
     name = run_name(study, pair, nu)
-    workdir = os.path.join(args.outdir, name)
-    table = os.path.join(workdir, "table.txt")
+    workdir = run_dir(args, study, pair, nu)
+    table = os.path.join(workdir, f"{pre}_table.txt")
     if os.path.exists(table) and not args.force:
         print(f"  {name}: table exists, skipping")
         return read_table(table)
@@ -154,14 +182,14 @@ def run_one(args, study, pair, nu):
     levels = args.levels if args.levels is not None else cfg["levels"]
     initial = args.initial if args.initial is not None else cfg["initial"]
     dat = DAT_TEMPLATE.format(
-        name=name, initial=initial, levels=levels,
+        outfile=f"{pre}.out", basename=f"{pre}_", initial=initial, levels=levels,
         uniform="true" if cfg["uniform"] else "false",
         problem_type=cfg["problem_type"], example=cfg["example"],
         vtk="true" if args.vtk else "false", vtk_dir="vtk",
         delta0=args.delta0, mu0=args.mu0, sigma0=cfg["sigma0"],
-        table="table.txt", vel=v, pres=p, reynolds=f"{1.0/nu:.6e}",
+        table=f"{pre}_table.txt", vel=v, pres=p, reynolds=f"{1.0/nu:.6e}",
         ps="true" if (not cfg["uniform"] and args.ps) else "false")
-    dat_file = os.path.join(workdir, name + ".dat")
+    dat_file = os.path.join(workdir, f"{pre}_{name}.dat")
     with open(dat_file, "w") as f:
         f.write(dat)
     exe = os.path.abspath(args.exe)
@@ -169,9 +197,9 @@ def run_one(args, study, pair, nu):
           f"initial refinement {initial}) ...",
           end="", flush=True)
     t0 = time.time()
-    with open(os.path.join(workdir, "stdout.log"), "w") as log:
+    with open(os.path.join(workdir, f"{pre}_stdout.log"), "w") as log:
         try:
-            subprocess.run([exe, name + ".dat"], cwd=workdir, stdout=log,
+            subprocess.run([exe, f"{pre}_{name}.dat"], cwd=workdir, stdout=log,
                            stderr=subprocess.STDOUT, check=True,
                            timeout=args.timeout)
         except subprocess.CalledProcessError as e:
@@ -182,10 +210,10 @@ def run_one(args, study, pair, nu):
             return None
     print(f" done in {time.time()-t0:.0f} s")
     if not os.path.exists(table):
-        print(f"    no table written, see {workdir}/stdout.log")
+        print(f"    no table written, see {workdir}/{pre}_stdout.log")
         return None
     rows = read_table(table)
-    write_csv(os.path.join(workdir, "table.csv"), rows)
+    write_csv(os.path.join(workdir, f"{pre}_table.csv"), rows)
     return rows
 
 
@@ -222,7 +250,8 @@ def plot_study(args, study, results):
                        ncol=min(len(labels), 6), frameon=False)
         fig.suptitle(cfg["title"])
         fig.tight_layout(rect=(0, 0.07, 1, 0.96))
-        out = os.path.join(args.outdir, f"{study}_{name}.{args.format}")
+        out = os.path.join(study_dir(args, study),
+                           f"{study_prefix(study)}_{study}_{name}.{args.format}")
         fig.savefig(out, dpi=150)
         plt.close(fig)
         print(f"  wrote {out}")
@@ -291,7 +320,7 @@ def plot_study(args, study, results):
         finish(fig, axes, "contributions")
 
     # ---- summary text table
-    out = os.path.join(args.outdir, f"{study}_summary.txt")
+    out = os.path.join(study_dir(args, study), f"{study_prefix(study)}_{study}_summary.txt")
     with open(out, "w") as f:
         f.write(f"{cfg['title']}\n")
         for pair in pairs:
@@ -316,8 +345,9 @@ def main():
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--exe", default="./parMooN_oseen2d_spg_adaptive_SEQUENTIAL",
                     help="path to the ParMooN executable")
-    ap.add_argument("--outdir", default="spg_results",
-                    help="directory for input files, logs, tables and figures")
+    ap.add_argument("--outdir", default=".",
+                    help="parent folder; each study writes into <outdir>/<problem>_<example>/ "
+                         "(oseen_aaj_smooth, oseen_aaj_layers, nse_aaj_smooth, nse_aaj_layers)")
     ap.add_argument("--study", nargs="+", default=["ex41"],
                     choices=sorted(STUDIES), help="which studies to run")
     ap.add_argument("--pairs", nargs="+", default=DEFAULT_PAIRS,
@@ -346,15 +376,15 @@ def main():
 
     if not args.plot_only and not os.access(args.exe, os.X_OK):
         sys.exit(f"executable {args.exe} not found; use --exe")
-    os.makedirs(args.outdir, exist_ok=True)
-
     for study in args.study:
+        os.makedirs(study_dir(args, study), exist_ok=True)
         nus = args.nu if args.nu else DEFAULT_NU[study]
         print(f"== {STUDIES[study]['title']}")
         results = {}
         for pair, nu in itertools.product(args.pairs, nus):
             name = run_name(study, pair, nu)
-            table = os.path.join(args.outdir, name, "table.txt")
+            table = os.path.join(run_dir(args, study, pair, nu),
+                                 f"{study_prefix(study)}_table.txt")
             if args.plot_only:
                 rows = read_table(table) if os.path.exists(table) else None
             else:

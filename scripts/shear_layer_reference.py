@@ -103,7 +103,8 @@ def main():
     ap.add_argument("--nu", type=float, default=1e-4)
     ap.add_argument("--t-end", type=float, default=1.)
     ap.add_argument("--dt", type=float, default=None)
-    ap.add_argument("--out", default="shear_reference.npz")
+    ap.add_argument("--out", default="tnse_bdf2_shear_layer_reference.npz",
+                    help="output file (named <problem>_<example>_reference, scripts/naming.py)")
     ap.add_argument("--compare", nargs="*", default=None,
                     help="reference .npz followed by sample files of the FE runs")
     args = ap.parse_args()

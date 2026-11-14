@@ -16,9 +16,18 @@ cells, time step, Picard iterations) and the PostScript meshes written by the
 programs.
 
 A study is defined by a base .dat file and a list of parameter variations
-given as key=value1,value2,... Each combination of values becomes one run in
-<outdir>/<name>_<key1>-<value1>_<key2>-<value2>/. Only keys that appear in the
-base file (or are valid parameters of the program) should be given.
+given as key=value1,value2,... Each combination of values becomes one run.
+
+Names (scripts/naming.py): the prefix is <problem>_<example>, e.g.
+tnse_taylor_green, from the program and the example number of the base file
+(or --set example=...). The output folder is <prefix>/ (or --outdir), the run
+folders are <prefix>_<name>_<key1>-<value1>_<key2>-<value2>/ with the files
+<prefix>_<name>_<...>.dat, <prefix>_table.txt, <prefix>_stdout.log,
+<prefix>.out, <prefix>_meshes.<format>, vtk/<prefix>_<i>.vtk (the PostScript
+meshes mesh_t*.ps keep their names), and the study files are
+<prefix>_<name>_tables.<format>, _summary.txt, _convergence.txt, ... Only keys
+that appear in the base file (or are valid parameters of the program) should
+be given. The example must not be varied (one study, one example).
 
 Examples
   # Example 2 of FGJN14 (effectivity in time) on three meshes and two diffusion coefficients
@@ -69,6 +78,9 @@ import sys
 import time
 
 import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import naming  # noqa: E402
 
 PROGRAMS = {
     # adaptive SUPG for evolutionary convection-diffusion (de Frutos et al. 2014),
@@ -311,7 +323,7 @@ def plot_meshes(args, run_dir, label):
         ax.axis("off")
     fig.suptitle(label)
     fig.tight_layout(rect=(0, 0, 1, 0.95))
-    out = os.path.join(run_dir, f"meshes.{args.format}")
+    out = os.path.join(run_dir, f"{args.prefix}_meshes.{args.format}")
     fig.savefig(out, dpi=200)
     plt.close(fig)
     print(f"wrote {out}")
@@ -726,7 +738,8 @@ def main():
     ap.add_argument("--exe", default=None, help="path to the executable (default: ./<program exe>)")
     ap.add_argument("--base", default=None, help="base input file")
     ap.add_argument("--name", required=True, help="name of the study")
-    ap.add_argument("--outdir", default="transient_results")
+    ap.add_argument("--outdir", default=None,
+                    help="output folder (default: <problem>_<example>, see scripts/naming.py)")
     ap.add_argument("--vary", nargs="*", default=[], help="key=v1,v2,... (several allowed)")
     ap.add_argument("--set", nargs="*", default=[], help="key=value fixed for all runs")
     ap.add_argument("--timeout", type=float, default=36000)
@@ -751,9 +764,25 @@ def main():
 
     prog = PROGRAMS[args.program]
     exe = os.path.abspath(args.exe or os.path.join(".", prog["exe"]))
-    os.makedirs(args.outdir, exist_ok=True)
 
     vary = parse_vary(args.vary)
+    # names: <problem>_<example> from the program and the example number
+    if any("example" in k.split("/") for k, _ in vary):
+        sys.exit("the example must not be varied: one study, one example "
+                 "(the folder is named after it)")
+    example = None
+    for kv in args.set:
+        if kv.split("=", 1)[0] == "example":
+            example = kv.split("=", 1)[1]
+    if example is None and args.base is not None:
+        example = naming.read_param(read_dat(args.base), "example")
+    if example is None:
+        sys.exit("give --base (or --set example=N): the folder is named after the example")
+    args.prefix = naming.prefix(naming.PROBLEMS[args.program], example)
+    args.name = f"{args.prefix}_{args.name}"
+    if args.outdir is None:
+        args.outdir = args.prefix
+    os.makedirs(args.outdir, exist_ok=True)
     combos = [list(zip([k for k, _ in vary], vals))
               for vals in itertools.product(*[v for _, v in vary])] if vary else [[]]
     fixed = parse_vary(args.set)
@@ -763,7 +792,7 @@ def main():
     for combo in combos:
         name = run_name(args.name, combo)
         run_dir = os.path.join(args.outdir, name)
-        table = os.path.join(run_dir, "table.txt")
+        table = os.path.join(run_dir, f"{args.prefix}_table.txt")
         label = ", ".join(f"{k.replace('VELOCITY_SPACE/PRESSURE_SPACE', 'pair')}={v}"
                           for k, v in combo) or args.name
         if not args.plot_only:
@@ -776,9 +805,9 @@ def main():
                 lines = read_dat(args.base)
                 lines = apply_combo(lines, [(k, v[0]) for k, v in fixed])
                 lines = apply_combo(lines, combo)
-                lines = set_param(lines, prog["table_key"], "table.txt")
-                lines = set_param(lines, "outfile", name + ".out")
-                lines = set_param(lines, "output_basename", name)
+                lines = set_param(lines, prog["table_key"], f"{args.prefix}_table.txt")
+                lines = set_param(lines, "outfile", f"{args.prefix}.out")
+                lines = set_param(lines, "output_basename", f"{args.prefix}_")
                 # make relative geo_file paths work from the run directory
                 for i, ln in enumerate(lines):
                     m = re.match(r"^\s*(geo_file|boundary_file)\s*:\s*(.+)$", ln)
@@ -800,7 +829,7 @@ def main():
                     continue
                 print(f"{name}: running ...", end="", flush=True)
                 t0 = time.time()
-                with open(os.path.join(run_dir, "stdout.log"), "w") as log:
+                with open(os.path.join(run_dir, f"{args.prefix}_stdout.log"), "w") as log:
                     try:
                         subprocess.run([exe, name + ".dat"], cwd=run_dir, stdout=log,
                                        stderr=subprocess.STDOUT, check=True,

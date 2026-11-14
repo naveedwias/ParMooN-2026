@@ -8,7 +8,9 @@ Exact solution (see include/Examples/TNSE_2D/TNSE_taylor_green.h), F = exp(-2 nu
   psi = (A/k) sin(kx) sin(ky) F  (u = psi_y, v = -psi_x),  omega = 2 A k sin(kx) sin(ky) F,
   for k L = 2 pi:  E = pi^2 A^2/k^2 F^2,  Z = 2 pi^2 A^2 F^2,  -dE/dt = 2 nu Z = 4 nu k^2 E.
 
-Writes, for a run directory (the input file *.dat, the table, the vtk files):
+Writes, for a run directory (the input file *.dat, the table, the vtk files),
+with <out> = RUN_DIR/<problem>_<example> (e.g. tnse_taylor_green, from the
+input file; scripts/naming.py):
   <out>_time.pdf    energy and enstrophy relative to the exact values;
                     dissipation -dE_h/dt against 2 nu Z_h and the exact rate,
                     and the numerical dissipation -dE_h/dt - 2 nu Z_h;
@@ -39,7 +41,12 @@ import math
 import os
 import re
 
+import sys
+
 import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import naming  # noqa: E402
 
 
 def read_dat(run_dir):
@@ -51,11 +58,13 @@ def read_dat(run_dir):
         m = re.match(r"^\s*([A-Za-z_0-9]+)\s*:\s*(.*?)\s*$", ln)
         if m:
             prm[m.group(1)] = m.group(2)
+    prm["_prefix"] = naming.prefix_from_input(dats[0], "tnse")
     return prm
 
 
 def read_table(run_dir, prm):
-    cand = [os.path.join(run_dir, "table.txt")]
+    cand = [os.path.join(run_dir, f"{prm['_prefix']}_table.txt"),
+            os.path.join(run_dir, "table.txt")]
     if "tnse_write_table" in prm:
         cand.append(os.path.join(run_dir, prm["tnse_write_table"]))
     for f in cand:
@@ -145,7 +154,8 @@ def stream_function_p1(pts, tris, u, v, psi_boundary, is_bnd):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("run_dir")
-    ap.add_argument("--out", default=None, help="prefix of the output files (default: RUN_DIR/tgv)")
+    ap.add_argument("--out", default=None,
+                    help="prefix of the output files (default: RUN_DIR/<problem>_<example>)")
     ap.add_argument("--snapshots", default="0,mid,last",
                     help="vtk output indices to plot: numbers, 'mid', 'last'")
     ap.add_argument("--format", default="pdf")
@@ -163,7 +173,7 @@ def main():
     A = float(prm.get("tgv_amplitude", 1.0))
     t0 = float(prm.get("time_start", 0.0))
     dt_out = float(prm.get("adaptive_output_time", 0.1))
-    out = args.out or os.path.join(args.run_dir, "tgv")
+    out = args.out or os.path.join(args.run_dir, prm["_prefix"])
     t = tab["time"]
     F2 = np.exp(-4 * nu * k * k * t)
 

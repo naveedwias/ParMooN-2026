@@ -3,23 +3,26 @@
 Plot the results produced by spg_study.py (steady Oseen / Navier-Stokes
 studies of Afzal, Ahmed, John 2026) without rerunning anything.
 
-spg_study.py stores one directory per run, <outdir>/<study>_P<k>P<l>_nu<nu>/,
-with the per-level table 'table.txt'. This script collects those tables and
-draws, per study,
+spg_study.py stores one folder per study, <outdir>/<prefix>/ with <prefix> =
+<problem>_<example> (scripts/naming.py: ex41 oseen_aaj_smooth, ex42
+oseen_aaj_layers, ex51 nse_aaj_smooth, ex52 nse_aaj_layers), and in it one
+folder per run, <prefix>_<study>_P<k>P<l>_nu<nu>/, with the per-level table
+<prefix>_table.txt. This script collects those tables and draws, per study,
+in the study folder,
 
-  <study>_error.pdf          error ||(u-u_h,p-p_h)||_spg vs DoFs, one panel per pair,
-                             with the O(h^k) reference line (uniform studies)
-  <study>_estimator.pdf      the estimator eta vs DoFs
-  <study>_effectivity.pdf    effectivity index vs DoFs
-  <study>_contributions.pdf  eta_res, eta_div, eta_F, eta_delta, eta_mu vs DoFs
-                             for one viscosity (--nu-contrib, default: closest to 1e-5)
-  <study>_pairs.pdf          all pairs in one panel (error and effectivity), one
-                             viscosity (--nu-pairs)
-  <study>_summary.txt        the numbers as a text table
+  <prefix>_<study>_error.pdf          error ||(u-u_h,p-p_h)||_spg vs DoFs, one panel per
+                                      pair, with the O(h^k) reference line (uniform studies)
+  <prefix>_<study>_estimator.pdf      the estimator eta vs DoFs
+  <prefix>_<study>_effectivity.pdf    effectivity index vs DoFs
+  <prefix>_<study>_contributions.pdf  eta_res, eta_div, eta_F, eta_delta, eta_mu vs DoFs
+                                      for one viscosity (--nu-contrib, default: closest to 1e-5)
+  <prefix>_<study>_pairs.pdf          all pairs in one panel (error and effectivity), one
+                                      viscosity (--nu-pairs)
+  <prefix>_<study>_summary.txt        the numbers as a text table
 
-Examples:
-  python3 spg_plot.py --outdir spg_results --study ex41
-  python3 spg_plot.py --outdir spg_results --study ex41 ex42 --format png --max-dofs 1e6
+Examples (from the folder that contains the study folders):
+  python3 spg_plot.py --study ex41
+  python3 spg_plot.py --study ex41 ex42 --format png --max-dofs 1e6
 """
 import math
 import argparse
@@ -27,7 +30,12 @@ import glob
 import os
 import re
 
+import sys
+
 import numpy as np
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from spg_study import study_prefix  # noqa: E402
 
 COLUMNS = ["level", "cells", "dofs", "h", "error_spg", "eta", "eta_res",
            "eta_div", "eta_F", "eta_delta", "eta_mu", "effectivity",
@@ -56,12 +64,13 @@ def read_table(path):
 
 
 def collect(outdir, study):
-    """return {(pair, nu): rows}"""
+    """return {(pair, nu): rows} from the study folder <outdir>/<prefix>"""
     results = {}
-    pat = re.compile(rf"^{study}_P(\d)P(\d)_nu([0-9.e+-]+)$")
-    for d in sorted(glob.glob(os.path.join(outdir, f"{study}_P*P*_nu*"))):
+    pre = study_prefix(study)
+    pat = re.compile(rf"^{pre}_{study}_P(\d)P(\d)_nu([0-9.e+-]+)$")
+    for d in sorted(glob.glob(os.path.join(outdir, pre, f"{pre}_{study}_P*P*_nu*"))):
         m = pat.match(os.path.basename(d))
-        table = os.path.join(d, "table.txt")
+        table = os.path.join(d, f"{pre}_table.txt")
         if not m or not os.path.exists(table):
             continue
         pair = f"{m.group(1)}/{m.group(2)}"
@@ -85,7 +94,8 @@ def pair_label(pair):
 def main():
     ap = argparse.ArgumentParser(description=__doc__,
                                  formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--outdir", default="spg_results")
+    ap.add_argument("--outdir", default=".",
+                    help="folder that contains the study folders <problem>_<example>")
     ap.add_argument("--study", nargs="+", default=["ex41"])
     ap.add_argument("--format", default="pdf", choices=["pdf", "png"])
     ap.add_argument("--max-dofs", type=float, default=None)
@@ -129,7 +139,8 @@ def main():
                 fig.legend(h, l, loc="lower center", ncol=min(6, len(l)), frameon=False)
             fig.suptitle(title)
             fig.tight_layout(rect=(0, 0.07, 1, 0.95))
-            out = os.path.join(args.outdir, f"{study}_{name}.{args.format}")
+            out = os.path.join(args.outdir, study_prefix(study),
+                               f"{study_prefix(study)}_{study}_{name}.{args.format}")
             fig.savefig(out, dpi=150)
             plt.close(fig)
             print(f"wrote {out}")
@@ -202,12 +213,14 @@ def main():
         ax1.legend(fontsize=8)
         fig.suptitle(rf"{title}, $\nu={nu_p:g}$")
         fig.tight_layout(rect=(0, 0, 1, 0.94))
-        out = os.path.join(args.outdir, f"{study}_pairs.{args.format}")
+        out = os.path.join(args.outdir, study_prefix(study),
+                           f"{study_prefix(study)}_{study}_pairs.{args.format}")
         fig.savefig(out, dpi=150); plt.close(fig)
         print(f"wrote {out}")
 
         # summary
-        out = os.path.join(args.outdir, f"{study}_summary.txt")
+        out = os.path.join(args.outdir, study_prefix(study),
+                           f"{study_prefix(study)}_{study}_summary.txt")
         with open(out, "w") as f:
             f.write(title + "\n")
             for pair in pairs:
