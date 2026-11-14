@@ -206,6 +206,11 @@ ParameterDatabase Example2D::default_example_database()
          "translation velocity U0", -1.e10, 1.e10);
   db.add("vortex_velocity_y", 0.0, "translating vortex: y component of U0",
          -1.e10, 1.e10);
+  db.add("tgv_length", 6.283185307179586, "Taylor-Green vortex (Example_TimeNSE2D "
+         "35): side length L of the square (0, L)^2; must match the mesh",
+         0., 1.e10);
+  db.add("tgv_wavenumber", 1.0, "Taylor-Green vortex: wavenumber k", 0., 1.e10);
+  db.add("tgv_amplitude", 1.0, "Taylor-Green vortex: amplitude A", -1.e10, 1.e10);
   db.add("pressure_factor", 1.0, "Parameter used in the NSE Examples Polynomial.h,"
   	  "SinCos.h and polynomial_solution.h to scale the pressure by a certain factor ");
   return db;

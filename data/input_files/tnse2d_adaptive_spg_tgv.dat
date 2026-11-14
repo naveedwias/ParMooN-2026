@@ -1,0 +1,46 @@
+[ transient SUPG/PSPG/grad-div Navier-Stokes: Taylor-Green vortex (example 35) on (0, 2 pi)^2, exact solution, f = 0 ]
+outfile: tnse2d_adaptive_spg_tgv.out
+boundary_file: ../ParMooN-2026/data/mesh/SquareTwoPi.PRM
+geo_file: ../ParMooN-2026/data/mesh/SquareTwoPi4x4_tria.GEO
+refinement_n_initial_steps: 3
+problem_type: 5
+example: 35
+verbosity: 1
+# Taylor-Green parameters: side length (must match the mesh), wavenumber, amplitude
+tgv_length: 6.283185307179586
+tgv_wavenumber: 1.0
+tgv_amplitude: 1.0
+output_write_vtk: true
+output_write_ps: true
+output_directory: vtk
+output_basename: tgv
+output_compute_errors: true
+space_discretization_type: supg_pspg_graddiv
+NSTYPE: 14
+LAPLACETYPE: 0
+NSE_NONLINEAR_FORM: 0
+VELOCITY_SPACE: 2
+PRESSURE_SPACE: 1
+# nu = 1e-2 (decay time 1/(4 nu) = 25 for the energy); small nu: 1e3, 1e4, 1e5
+reynolds_number: 100.0
+nonlinloop_maxit: 30
+nonlinloop_epsilon: 1e-10
+solver_type: direct
+direct_solver_type: umfpack
+time_start: 0.0
+time_end: 10.0
+time_step_length: 0.05
+trab2_adaptive: true
+trab2_tolt: 1.0e-5
+trab2_dt0: 1.0e-3
+trab2_dt_max: 0.1
+trab2_averaging: periodic
+trab2_first_step: backward_euler
+tnse_initial_value: l2_projection
+tnse_dt_alpha: 0.5
+adaptive_mesh: false
+adaptive_tol1: 1.0e-2
+adaptive_tol2: 5.0e-4
+adaptive_max_cell_level: 8
+adaptive_output_time: 1.0
+tnse_write_table: tnse2d_adaptive_spg_tgv_table.txt

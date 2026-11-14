@@ -781,11 +781,13 @@ def main():
                 lines = set_param(lines, "output_basename", name)
                 # make relative geo_file paths work from the run directory
                 for i, ln in enumerate(lines):
-                    m = re.match(r"^\s*geo_file\s*:\s*(.+)$", ln)
+                    m = re.match(r"^\s*(geo_file|boundary_file)\s*:\s*(.+)$", ln)
                     if m:
-                        geo = resolve_mesh_path(m.group(1).strip(), args.base)
+                        # relative mesh files (built-in names such as
+                        # Default_UnitSquare are not files and stay as they are)
+                        geo = resolve_mesh_path(m.group(2).strip(), args.base)
                         if geo is not None:
-                            lines[i] = f"geo_file: {geo}"
+                            lines[i] = f"{m.group(1)}: {geo}"
                     # ParMooN does not create the vtk output directory
                     m = re.match(r"^\s*output_directory\s*:\s*(.+)$", ln)
                     if m:

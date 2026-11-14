@@ -105,6 +105,11 @@ namespace tnse_poly_linear_time      // case 31
 #undef TNSE_POLY_TIME_DEGREE
 }
 
+namespace tnse_taylor_green          // case 35
+{
+#include "TNSE_2D/TNSE_taylor_green.h"
+}
+
 CoeffFct2D bdf2imex_stokes_projection_coeffs(int example)
 {
   switch(example)
@@ -116,9 +121,10 @@ CoeffFct2D bdf2imex_stokes_projection_coeffs(int example)
     case 30: return tnse_poly_quadratic_time::StokesProjectionCoeffs;
     case 31: return tnse_poly_linear_time::StokesProjectionCoeffs;
     case 32: return tnse_translating_vortex::StokesProjectionCoeffs;
+    case 35: return tnse_taylor_green::StokesProjectionCoeffs;
     default:
       ErrThrow("bdf2imex_stokes_projection_coeffs: no Stokes projection data "
-               "for example ", example, " (available: 25-28, 30-32)");
+               "for example ", example, " (available: 25-28, 30-32, 35)");
   }
 }
 
@@ -617,6 +623,29 @@ Example_TimeNSE2D::Example_TimeNSE2D(
       boundary_conditions.push_back( BoundConditionNoBoundCondition );
       boundary_data.push_back( U1BoundValueNeumann );
       boundary_data.push_back( U2BoundValueNeumann );
+      boundary_data.push_back( BoundaryValueHomogenous );
+      problem_coefficients = LinCoeffs;
+      ExampleFile();
+      initialCondition.push_back( ExactU1 );
+      initialCondition.push_back( ExactU2 );
+      initialCondition.push_back( ExactP );
+      break;
+    }
+
+    case 35: // Taylor-Green vortex (exact, f = 0)
+    {
+      using namespace tnse_taylor_green;
+      set_tgv_parameters(example_database["tgv_length"],
+                         example_database["tgv_wavenumber"],
+                         example_database["tgv_amplitude"]);
+      exact_solution.push_back( ExactU1 );
+      exact_solution.push_back( ExactU2 );
+      exact_solution.push_back( ExactP );
+      boundary_conditions.push_back( BoundCondition );
+      boundary_conditions.push_back( BoundCondition );
+      boundary_conditions.push_back( BoundConditionNoBoundCondition );
+      boundary_data.push_back( U1BoundValue );
+      boundary_data.push_back( U2BoundValue );
       boundary_data.push_back( BoundaryValueHomogenous );
       problem_coefficients = LinCoeffs;
       ExampleFile();

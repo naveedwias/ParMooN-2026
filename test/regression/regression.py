@@ -47,6 +47,10 @@ CASES = {
     "tnse_ex2_adaptive": ("parMooN_tnse2d_adaptive_spg_SEQUENTIAL", "tnse2d_adaptive_spg_ex2.dat",
                           {"refinement_n_initial_steps": "3", "time_end": "0.05", "output_write_vtk": "false",
                            "output_write_ps": "false", "adaptive_max_cell_level": "6"}, "tnse_write_table"),
+    # Taylor-Green vortex (example 35) on (0, 2 pi)^2, backward Euler start
+    "tnse_tgv": ("parMooN_tnse2d_adaptive_spg_SEQUENTIAL", "tnse2d_adaptive_spg_tgv.dat",
+                 {"refinement_n_initial_steps": "2", "time_end": "0.5", "output_write_vtk": "false",
+                  "output_write_ps": "false"}, "tnse_write_table"),
     # BDF2-IMEX / CIP (examples 25, 26, 27, 28)
     "bdf2_sv_cip_ex25": ("parMooN_tnse2d_bdf2imex_cip_SEQUENTIAL", "tnse2d_bdf2imex_cip.dat",
                          {"time_end": "0.25", "time_step_length": "0.0625"}, "bdf2_write_table"),
@@ -199,10 +203,10 @@ def prepare_input(base, overrides, run_dir, table_key):
     lines = set_param(lines, "outfile", "run.out")
     lines = set_param(lines, table_key, "table.txt")
     for i, ln in enumerate(lines):
-        m = re.match(r"^\s*geo_file\s*:\s*(.+)$", ln)
-        if m and "data/mesh/" in m.group(1):
-            p = m.group(1).strip()
-            lines[i] = "geo_file: " + os.path.join(REPO, p[p.index("data/mesh/"):])
+        m = re.match(r"^\s*(geo_file|boundary_file)\s*:\s*(.+)$", ln)
+        if m and "data/mesh/" in m.group(2):
+            p = m.group(2).strip()
+            lines[i] = m.group(1) + ": " + os.path.join(REPO, p[p.index("data/mesh/"):])
         m = re.match(r"^\s*output_directory\s*:\s*(.+)$", ln)
         if m:
             os.makedirs(os.path.join(run_dir, m.group(1).strip()), exist_ok=True)

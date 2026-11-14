@@ -7,13 +7,22 @@ Boundary vertices are given by the global boundary parameter (as required by
 the Default_UnitSquare / UnitSquare.PRM description: 0: y=0, 1: x=1, 2: y=1,
 3: x=0), interior vertices by their coordinates.
 
-Usage: make_unitsquare_geo.py N [output file]
+Usage: make_unitsquare_geo.py N [output file] [--length L]
+With --length L the mesh covers the square (0, L)^2 (interior vertices scaled;
+boundary vertices keep their global boundary parameter, which the PRM file
+maps to the side of length L, e.g. data/mesh/SquareTwoPi.PRM for L = 2 pi).
 """
 import sys
 
 def main():
-    n = int(sys.argv[1])
-    out = sys.argv[2] if len(sys.argv) > 2 else f"UnitSquare{n}x{n}_tria.GEO"
+    args = sys.argv[1:]
+    length = 1.0
+    if "--length" in args:
+        i = args.index("--length")
+        length = float(args[i + 1])
+        del args[i:i + 2]
+    n = int(args[0])
+    out = args[1] if len(args) > 1 else f"UnitSquare{n}x{n}_tria.GEO"
     h = 1.0 / n
     # vertices: boundary vertices first (counterclockwise from (0,0)), then interior
     index = {}
@@ -25,7 +34,7 @@ def main():
             lines_coord.append(f"{param:.16g} 0")
             knpr.append(1)
         else:
-            lines_coord.append(f"{i*h:.16g} {j*h:.16g}")
+            lines_coord.append(f"{i*h*length:.16g} {j*h*length:.16g}")
             knpr.append(0)
     for i in range(n):          # bottom: y = 0, parameter x
         add(i, 0, True, i*h)
@@ -45,7 +54,10 @@ def main():
             cells.append((a, b, d))
             cells.append((b, c, d))
     with open(out, "w") as f:
-        f.write(f"uniform {n}x{n} triangulation of the unit square [0,1]^2\n")
+        if length == 1.0:
+            f.write(f"uniform {n}x{n} triangulation of the unit square [0,1]^2\n")
+        else:
+            f.write(f"uniform {n}x{n} triangulation of the square [0,{length:.16g}]^2\n")
         f.write("n_elem   n_vert ignored  max_n_vert_per_elem  ignored\n")
         f.write(f"  {len(cells)}   {len(lines_coord)}   0   3   1\n")
         f.write("DCORVG\n")
