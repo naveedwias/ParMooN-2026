@@ -2,11 +2,16 @@
 # =============================================================================
 # Studies for the two-dimensional Taylor-Green vortex (Example_TimeNSE2D 35,
 # input data/input_files/tnse2d_adaptive_spg_tgv.dat, domain (0, 2 pi)^2,
-# exact solution with f = 0) with the program tnse2d_adaptive_spg.
+# periodic in x and y, exact solution with f = 0) with the program
+# tnse2d_adaptive_spg, on uniform meshes: adaptive meshes are not supported
+# with periodic boundary conditions (and would not help for this smooth,
+# spatially periodic solution: with Dirichlet data, tgv_periodic: false, the
+# estimator spreads the refinement almost uniformly and the error at equal
+# DoFs is not better than on uniform meshes).
 #
 # Run from the build directory (next to ParMooN-2026/):
 #   bash ../ParMooN-2026/scripts/run_tgv_studies.sh        # all studies
-#   bash ../ParMooN-2026/scripts/run_tgv_studies.sh 2      # only study 2
+#   bash ../ParMooN-2026/scripts/run_tgv_studies.sh 2      # only study 2 (1 ... 4)
 #
 # Finished runs (with a table) are skipped, so the script can be restarted.
 # Figures of a study: repeat its transient_study.py command with --plot-only.
@@ -49,30 +54,14 @@ if run 2; then
 fi
 
 # -----------------------------------------------------------------------------
-# 3. Adaptive meshes against uniform meshes (same T, nu): tolerance sweep
-#    from level 3, error versus the time-averaged DoFs; compare with study 2.
-#    For this smooth, spatially periodic solution the estimator spreads the
-#    refinement almost uniformly: adaptivity is not expected to help (at
-#    equal DoFs the SPG-norm error is the same as on uniform meshes; the L2
-#    error and the energy are not better). The study documents this.
-#    Output: tgv/ada_convergence.{txt,pdf}, meshes per run, field plots.
-if run 3; then
-  python3 $S --program tnse --base $B --name ada --outdir $OUT \
-      --set time_end=1.0 trab2_tolt=1e-6 refinement_n_initial_steps=3 adaptive_mesh=true \
-            adaptive_max_cell_level=8 adaptive_output_time=0.5 \
-      --vary adaptive_tol1/adaptive_tol2=2e-2/1e-3,1e-2/5e-4,5e-3/2.5e-4 --dofs mean
-  plots $OUT/ada_adaptive_tol1_adaptive_tol2-5e-32.5e-4
-fi
-
-# -----------------------------------------------------------------------------
-# 4. Small viscosity: Galerkin, grad-div only, SUPG/PSPG only, SUPG/PSPG +
+# 3. Small viscosity: Galerkin, grad-div only, SUPG/PSPG only, SUPG/PSPG +
 #    grad-div on the uniform level-4 mesh, nu = 1e-3, 1e-4, 1e-5, T = 10.
 #    The solution decays only slowly; look at the energy and enstrophy
 #    (numerical dissipation), the vorticity extrema and the pressure error
 #    (pressure robustness: grad-div). The estimator is meaningful only for
 #    the full method.
 #    Output: tgv/small_nu_Re<Re>_{tables,flow}.pdf, field plots per run.
-if run 4; then
+if run 3; then
   for re in 1000.0 10000.0 100000.0; do
     python3 $S --program tnse --base $B --name small_nu_Re$re --outdir $OUT \
         --set reynolds_number=$re refinement_n_initial_steps=4 time_end=10.0 \
@@ -83,10 +72,10 @@ if run 4; then
 fi
 
 # -----------------------------------------------------------------------------
-# 5. Time discretization: TOLT sweep on the uniform level-4 mesh (nu = 1e-2),
+# 4. Time discretization: TOLT sweep on the uniform level-4 mesh (nu = 1e-2),
 #    and the start without backward Euler step for comparison.
 #    Output: tgv/tolt_{tables,flow}.pdf, _summary.txt
-if run 5; then
+if run 4; then
   python3 $S --program tnse --base $B --name tolt --outdir $OUT \
       --set refinement_n_initial_steps=4 time_end=2.0 output_write_vtk=false output_write_ps=false \
       --vary trab2_tolt=1e-4,1e-5,1e-6 trab2_first_step=backward_euler,semidiscrete --no-meshes

@@ -211,6 +211,9 @@ ParameterDatabase Example2D::default_example_database()
          0., 1.e10);
   db.add("tgv_wavenumber", 1.0, "Taylor-Green vortex: wavenumber k", 0., 1.e10);
   db.add("tgv_amplitude", 1.0, "Taylor-Green vortex: amplitude A", -1.e10, 1.e10);
+  db.add("tgv_periodic", true, "Taylor-Green vortex: periodic boundary "
+         "conditions (needs periodic_translations and k L a multiple of 2 pi; "
+         "no adaptive meshes), otherwise Dirichlet data from the exact solution");
   db.add("pressure_factor", 1.0, "Parameter used in the NSE Examples Polynomial.h,"
   	  "SinCos.h and polynomial_solution.h to scale the pressure by a certain factor ");
   return db;

@@ -1,4 +1,4 @@
-[ transient SUPG/PSPG/grad-div Navier-Stokes: Taylor-Green vortex (example 35) on (0, 2 pi)^2, exact solution, f = 0 ]
+[ transient SUPG/PSPG/grad-div Navier-Stokes: Taylor-Green vortex (example 35) on (0, 2 pi)^2, periodic, exact solution, f = 0; uniform meshes (adaptive meshes are not supported with periodic boundaries) ]
 outfile: tnse2d_adaptive_spg_tgv.out
 boundary_file: ../ParMooN-2026/data/mesh/SquareTwoPi.PRM
 geo_file: ../ParMooN-2026/data/mesh/SquareTwoPi4x4_tria.GEO
@@ -10,8 +10,11 @@ verbosity: 1
 tgv_length: 6.283185307179586
 tgv_wavenumber: 1.0
 tgv_amplitude: 1.0
+# periodic in x and y (the setting of the literature); false: Dirichlet data
+tgv_periodic: true
+periodic_translations: (6.283185307179586,0.,0.,6.283185307179586)
 output_write_vtk: true
-output_write_ps: true
+output_write_ps: false
 output_directory: vtk
 output_basename: tgv
 output_compute_errors: true

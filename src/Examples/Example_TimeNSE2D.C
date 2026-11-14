@@ -637,7 +637,8 @@ Example_TimeNSE2D::Example_TimeNSE2D(
       using namespace tnse_taylor_green;
       set_tgv_parameters(example_database["tgv_length"],
                          example_database["tgv_wavenumber"],
-                         example_database["tgv_amplitude"]);
+                         example_database["tgv_amplitude"],
+                         example_database["tgv_periodic"]);
       exact_solution.push_back( ExactU1 );
       exact_solution.push_back( ExactU2 );
       exact_solution.push_back( ExactP );

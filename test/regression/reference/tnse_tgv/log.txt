@@ -1,14 +1,14 @@
 TR-AB2: t = 0.0771063 (step 1, backward Euler, next dt = 0.0771063)
-estimator: eta = 5.05971, error = 0.274891, effectivity = 18.4062, cells = 512
-TR-AB2: t = 0.154213 (step 2, |e| = 0.00231056, next dt = 0.0771063)
-estimator: eta = 5.72528, error = 0.289628, effectivity = 19.7677, cells = 512
-TR-AB2: t = 0.231319 (step 3, |e| = 0.00381686, next dt = 0.0771063)
-estimator: eta = 5.2513, error = 0.270887, effectivity = 19.3856, cells = 512
-TR-AB2: t = 0.308425 (step 4, |e| = 0.00257361, next dt = 0.0771063)
-estimator: eta = 5.5141, error = 0.278428, effectivity = 19.8044, cells = 512
-TR-AB2: t = 0.385531 (step 5, |e| = 0.00179525, next dt = 0.0771063)
-estimator: eta = 5.30591, error = 0.270174, effectivity = 19.6389, cells = 512
-TR-AB2: t = 0.462638 (step 6, |e| = 0.00129848, next dt = 0.0771063)
-estimator: eta = 5.40557, error = 0.273575, effectivity = 19.759, cells = 512
-TR-AB2: t = 0.5 (step 7, |e| = 0.000205932, next dt = 0.0771063)
-estimator: eta = 5.32856, error = 0.26986, effectivity = 19.7456, cells = 512
+estimator: eta = 5.08618, error = 0.275612, effectivity = 18.4541, cells = 512
+TR-AB2: t = 0.154213 (step 2, |e| = 0.00242078, next dt = 0.0771063)
+estimator: eta = 5.76935, error = 0.292373, effectivity = 19.7329, cells = 512
+TR-AB2: t = 0.231319 (step 3, |e| = 0.00414537, next dt = 0.0771063)
+estimator: eta = 5.22696, error = 0.270966, effectivity = 19.2901, cells = 512
+TR-AB2: t = 0.308425 (step 4, |e| = 0.00296844, next dt = 0.0771063)
+estimator: eta = 5.55693, error = 0.280724, effectivity = 19.795, cells = 512
+TR-AB2: t = 0.385531 (step 5, |e| = 0.00213382, next dt = 0.0771063)
+estimator: eta = 5.29511, error = 0.269945, effectivity = 19.6155, cells = 512
+TR-AB2: t = 0.462638 (step 6, |e| = 0.00156582, next dt = 0.0771063)
+estimator: eta = 5.4349, error = 0.275137, effectivity = 19.7535, cells = 512
+TR-AB2: t = 0.5 (step 7, |e| = 0.000249695, next dt = 0.0771063)
+estimator: eta = 5.33437, error = 0.269935, effectivity = 19.7617, cells = 512

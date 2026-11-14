@@ -46,8 +46,25 @@ int main(int argc, char* argv[])
 
   TDomain domain(parmoon_db);
   check_parameters_consistency_NSE(parmoon_db);
-  domain.refine_and_get_hierarchy_of_collections(parmoon_db);
   Example_TimeNSE2D example(parmoon_db);
+  // periodic boundaries: if the example marks a boundary part PERIODIC, the
+  // boundary condition function is passed to the refinement, which then pairs
+  // the joints of opposite sides (periodic_translations). Periodic joints are
+  // set up on the uniformly refined mesh only; the local refinement and
+  // coarsening of the adaptive loop does not keep them, so adaptive meshes
+  // are not allowed with periodic boundaries.
+  bool periodic = false;
+  for(int c = 0; c < domain.GetBdPart(0)->GetN_BdComps(); ++c)
+  {
+    BoundCond cond;
+    example.get_bc(0)(c, 0.5, cond);
+    periodic = periodic || (cond == PERIODIC);
+  }
+  if(periodic && (bool) parmoon_db["adaptive_mesh"])
+    ErrThrow("adaptive meshes are not supported with periodic boundary "
+             "conditions: set 'adaptive_mesh: false'");
+  domain.refine_and_get_hierarchy_of_collections(parmoon_db,
+    periodic ? example.get_bc(0) : nullptr);
   NSE_SPG_ErrorEstimator estimator(parmoon_db);
 
   AdaptiveTimeLoop loop(domain, parmoon_db, estimator,

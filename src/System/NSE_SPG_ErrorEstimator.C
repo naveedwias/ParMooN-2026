@@ -455,6 +455,7 @@ void NSE_SPG_ErrorEstimator::estimate(const Example_NSE2D& ex,
                           || joint->GetType() == IsoBoundEdge);
       const TBaseCell* neigh = nullptr;
       int neigh_idx = -1;
+      double shift_x = 0., shift_y = 0.; // periodic joints
       if(is_boundary)
       {
         const TBoundEdge* bd_edge = static_cast<const TBoundEdge*>(joint);
@@ -490,6 +491,30 @@ void NSE_SPG_ErrorEstimator::estimate(const Example_NSE2D& ex,
         neigh_idx = neigh->GetClipBoard();
         if(neigh_idx < 0)
           ErrThrow("NSE_SPG_ErrorEstimator: neighbour cell not in collection");
+        // periodic joint: the neighbour lies at the opposite side of the
+        // domain; it is evaluated at the points shifted by the translation
+        // between the two copies of the edge (as in CIP_NSE2D)
+        if(joint->GetType() == PeriodicJoint)
+        {
+          const int* ev_n;
+          neigh->GetRefDesc()->GetShapeDesc()->GetEdgeVertex(ev_n);
+          bool found = false;
+          for(int en = 0; en < neigh->GetN_Edges(); ++en)
+          {
+            if(neigh->GetJoint(en) == joint)
+            {
+              const TVertex* w0 = neigh->GetVertex(ev_n[2*en]);
+              const TVertex* w1 = neigh->GetVertex(ev_n[2*en+1]);
+              shift_x = 0.5*(w0->GetX() + w1->GetX()) - 0.5*(x0 + x1);
+              shift_y = 0.5*(w0->GetY() + w1->GetY()) - 0.5*(y0 + y1);
+              found = true;
+              break;
+            }
+          }
+          if(!found)
+            ErrThrow("NSE_SPG_ErrorEstimator: periodic joint without its edge "
+                     "in the neighbour cell");
+        }
       }
 
       // quadrature points on the edge
@@ -522,9 +547,10 @@ void NSE_SPG_ErrorEstimator::estimate(const Example_NSE2D& ex,
         else
         {
           double nu1[3], nu2[3], np[3];
-          u1->FindGradientLocal(neigh, neigh_idx, X1d[k], Y1d[k], nu1);
-          u2->FindGradientLocal(neigh, neigh_idx, X1d[k], Y1d[k], nu2);
-          p.FindGradientLocal(neigh, neigh_idx, X1d[k], Y1d[k], np);
+          const double xn = X1d[k] + shift_x, yn = Y1d[k] + shift_y;
+          u1->FindGradientLocal(neigh, neigh_idx, xn, yn, nu1);
+          u2->FindGradientLocal(neigh, neigh_idx, xn, yn, nu2);
+          p.FindGradientLocal(neigh, neigh_idx, xn, yn, np);
           double s1 = -nu*(nu1[1]*nx + nu1[2]*ny) + np[0]*nx;
           double s2 = -nu*(nu2[1]*nx + nu2[2]*ny) + np[0]*ny;
           j1 = t1 - s1;

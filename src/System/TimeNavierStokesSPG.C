@@ -211,6 +211,14 @@ void TimeNavierStokesSPG::initialize()
   }
   else if(init == "consistent_projection")
   {
+    // the projection solves the steady stabilized operator A^b alone; without
+    // Dirichlet velocity data (e.g. periodic in all directions) a constant
+    // velocity lies in its kernel and the projection is not defined
+    if(n_active_u == n_u)
+      ErrThrow("tnse_initial_value consistent_projection needs Dirichlet data "
+               "for the velocity (without them, e.g. with periodic boundaries "
+               "in all directions, a constant velocity is undetermined); use "
+               "l2_projection or interpolation");
     // The interpolant of u(t0) is not consistent with the discrete
     // constraint (divergence row with PSPG); its component in the stiff modes
     // (stiffness ~ 1/(delta_0 h^2)) is carried on by the trapezoidal rule with

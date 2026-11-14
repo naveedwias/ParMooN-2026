@@ -21,14 +21,18 @@
 // Note the orientation: with u = cos x sin y, v = -sin x cos y the pressure
 // has the opposite sign (ParMooN's SinCosExp.h, Example_TimeNSE2D 2).
 //
-// Boundary conditions: Dirichlet data from the exact solution on the whole
-// boundary (time dependent). For k L a multiple of pi the sides are
-// streamlines (u.n = 0) and only the tangential velocity is prescribed. The
-// periodic setting of the literature has the same exact solution.
+// Boundary conditions (tgv_periodic):
+//   true (default): periodic in x and y, the setting of the literature; needs
+//     k L a multiple of 2 pi and 'periodic_translations: (L,0.,0.,L)' in the
+//     input file; adaptive meshes are not supported with periodic
+//     boundaries (the program stops);
+//   false: Dirichlet data from the exact solution on the whole boundary (time
+//     dependent; for k L a multiple of pi the sides are streamlines, u.n = 0).
+// Both have the same exact solution.
 //
 // Parameters (input file): tgv_length L (must be the side length of the mesh,
 // e.g. data/mesh/SquareTwoPi.PRM + SquareTwoPi4x4_tria.GEO for 2 pi),
-// tgv_wavenumber k, tgv_amplitude A. Coefficient layout as in
+// tgv_wavenumber k, tgv_amplitude A, tgv_periodic. Coefficient layout as in
 // TNSE_AAJ_smooth.h (coeff[4..5] = b = u).
 // =============================================================================
 #include "Constants.h"
@@ -36,14 +40,16 @@
 #include <cmath>
 
 static double tgv_L = 2.*M_PI, tgv_k = 1., tgv_A = 1.;
+static bool tgv_periodic = true;
 
 void ExampleFile()
 {
   Output::print<1>("Example: TNSE_taylor_green.h (Taylor-Green vortex), L = ",
-                   tgv_L, ", k = ", tgv_k, ", A = ", tgv_A);
+                   tgv_L, ", k = ", tgv_k, ", A = ", tgv_A, ", ",
+                   tgv_periodic ? "periodic" : "Dirichlet", " boundary conditions");
 }
 
-void set_tgv_parameters(double L, double k, double A)
+void set_tgv_parameters(double L, double k, double A, bool periodic)
 {
   if(L <= 0. || k <= 0.)
     ErrThrow("Taylor-Green vortex: tgv_length and tgv_wavenumber must be "
@@ -51,6 +57,13 @@ void set_tgv_parameters(double L, double k, double A)
   tgv_L = L;
   tgv_k = k;
   tgv_A = A;
+  tgv_periodic = periodic;
+  // periodic boundaries need whole periods: k L = 2 pi m
+  const double periods = k*L/(2.*M_PI);
+  if(periodic && std::abs(periods - std::round(periods)) > 1e-10)
+    ErrThrow("Taylor-Green vortex: periodic boundary conditions need "
+             "tgv_wavenumber * tgv_length to be a multiple of 2 pi (it is ",
+             k*L, ")");
 }
 
 static inline double tgv_F()
@@ -104,7 +117,7 @@ double tgv_vorticity(double x, double y)
 
 void BoundCondition(int, double, BoundCond &cond)
 {
-  cond = DIRICHLET;
+  cond = tgv_periodic ? PERIODIC : DIRICHLET;
 }
 
 // boundary parametrization of the square (0, L)^2 (as SquareTwoPi.PRM,
