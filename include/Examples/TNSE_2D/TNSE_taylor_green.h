@@ -32,8 +32,9 @@
 //
 // Parameters (input file): tgv_length L (must be the side length of the mesh,
 // e.g. data/mesh/SquareTwoPi.PRM + SquareTwoPi4x4_tria.GEO for 2 pi),
-// tgv_wavenumber k, tgv_amplitude A, tgv_periodic. Coefficient layout as in
-// TNSE_AAJ_smooth.h (coeff[4..5] = b = u).
+// tgv_wavenumber k, tgv_amplitude A, tgv_periodic. Coefficients: see LinCoeffs.
+// With the BDF2-IMEX program: bdf2_periodic true, bdf2_start euler (the
+// Stokes projection is not defined with periodic boundaries).
 // =============================================================================
 #include "Constants.h"
 #include "MooNMD_Io.h"
@@ -151,21 +152,25 @@ void U2BoundValue(int BdComp, double Param, double &value)
   value = v[0];
 }
 
-void LinCoeffs(int n_points, const double *X, const double *Y,
+// Coefficients for the Navier-Stokes programs: coeff[0] = nu, coeff[1..2] = f
+// = 0, coeff[3] = div u = 0, coeff[4] = 1 - nu, coeff[5..6] = 0.
+// coeff[4] = 1 - nu is the convention of the BDF2-IMEX program: ParMooN's
+// grad-div routine uses graddiv_stab (nu + coeff[4] L_0^2), which then equals
+// graddiv_stab (L_0 = 1). The SUPG/PSPG/grad-div program reads coeff[4..6]
+// only for Oseen problems (problem_type 3, b = coeff[4..5]), which this
+// example is not used for (b = u_h for Navier-Stokes).
+void LinCoeffs(int n_points, const double *, const double *,
                const double *const*, double **coeffs)
 {
   const double nu = 1./TDatabase::ParamDB->RE_NR;
-  double u1[4], u2[4];
   for(int i = 0; i < n_points; i++)
   {
-    ExactU1(X[i], Y[i], u1);
-    ExactU2(X[i], Y[i], u2);
     coeffs[i][0] = nu;
     coeffs[i][1] = 0.;   // f = 0: exact Navier-Stokes solution
     coeffs[i][2] = 0.;
     coeffs[i][3] = 0.;   // div u = 0
-    coeffs[i][4] = u1[0];
-    coeffs[i][5] = u2[0];
+    coeffs[i][4] = 1. - nu;
+    coeffs[i][5] = 0.;
     coeffs[i][6] = 0.;
   }
 }

@@ -460,6 +460,14 @@ int main(int argc, char* argv[])
   double t = t_start;
   TDatabase::TimeDB->CURRENTTIME = t;
   std::string start = parmoon_db["bdf2_start"];
+  // with periodic boundaries in all directions the Stokes problem determines
+  // the velocity only up to a constant (no Dirichlet data): the Stokes
+  // projection would add an arbitrary constant (Taylor-Green vortex: E_0 =
+  // 16.7 instead of 1.7e-2)
+  if(periodic && start == "stokes_projection")
+    ErrThrow("bdf2_start stokes_projection is not defined with periodic "
+             "boundary conditions (constant velocities in the kernel of the "
+             "Stokes operator); use 'bdf2_start: euler'");
   double E0 = 0., Ep2 = 0., D = 0., max_u = 0.;
   std::ostringstream table;
   table << "# step time L2(u) H1(u) L2(p) div(u) ||b||_inf F_m\n";
