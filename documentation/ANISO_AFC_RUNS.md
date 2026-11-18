@@ -1,0 +1,197 @@
+# Algebraic stabilizations on layer-adapted meshes with ParMooN (branch `adaptive-refactor`)
+
+The ParMooN version of the study in the paper *Algebraically stabilized finite element methods on
+layer-adapted meshes: accuracy, discrete maximum principle and nonlinear solvers*
+(galerkit-latex, `convection_diffusion/anisotropic_afc`). Everything below refers to commit
+`cb6f6b1` or later. All commands are run from the build directory, which sits next to the source
+tree (`build/` and `ParMooN-2026/` in the same parent directory). The tools themselves are
+described in `scripts/aniso_afc/README.md`.
+
+## Where the code is
+
+| what | where |
+|---|---|
+| the eight methods (BJK, Kuzmin, MC, MUAS, SMUAS, BBK, F-BBK, S-BBK), the switches, the relaxed and the regularized limiters | `include/AssembleRoutines/AlgebraicStabilization.h`, `src/AssembleRoutines/AlgebraicStabilization.C` (separate from `AlgebraicFluxCorrection`) |
+| fixed point iteration, Anderson acceleration with safeguard, Newton with continuation | `ConvectionDiffusion_AFC::solve`, `solve_algstab_anderson`, `solve_algstab_newton` (`src/System/ConvectionDiffusion_AFC.C`) |
+| program | `cd2d_afc` (`2DPrograms/CD2D_AFC_ParMooN.C`) |
+| Examples 1-5 of the paper | `Example_CD2D` 27, 7, 18, 29, 30 (28: cross-check problem b = (2,3), c = 1) |
+| meshes, measures, study, tables, regression | `scripts/aniso_afc/` (`meshes.py`, `measures.py`, `run_study.py`, `report_extra.py`, `regression.py`) |
+
+## Build and check
+
+```bash
+cd ParMooN-2026 && git pull && cd ../build
+cmake . && make cd2d_afc
+python3 ../ParMooN-2026/scripts/aniso_afc/regression.py --exe ./parMooN_cd2d_afc_SEQUENTIAL
+```
+
+`cmake .` is needed once after the pull that added `AlgebraicStabilization.C`. The regression
+must print `18 of 18 cases passed`. Python 3.6 or later with numpy and scipy is required
+(matplotlib for the figure); galerkit is not needed.
+
+## Reproducing the paper's results
+
+Finished runs are skipped, so every command can be stopped and repeated, and the steps can be
+spread over several sessions. `J` is the number of parallel runs.
+
+```bash
+S=../ParMooN-2026/scripts/aniso_afc/run_study.py
+J=$(nproc)
+C123="1:1e-4 1:1e-8 2:1e-8 3:1e-8"
+
+# Examples 1-3: accuracy, DMP, iterations, meshes
+python3 $S --jobs $J --cases $C123 --n 16 32 64 128 --meshes uniform shishkin_r shishkin_l shishkin_x
+# switch-off by the Peclet number, Example 2
+python3 $S --jobs $J --cases 2:1e-8 --n 64 128 --meshes shishkin_r shishkin_x --variants roff
+# layer-adapted meshes, with and without the layer switch
+python3 $S --jobs $J --cases $C123 --n 16 32 64 128 \
+        --meshes shishkin_r bakhvalov_shishkin bakhvalov duran --variants plain loff
+# Anderson acceleration without and with the safeguard
+for sv in fp_anderson fp_anderson_safe; do
+  python3 $S --jobs $J --cases $C123 --n 128 --meshes uniform shishkin_r shishkin_x --solver $sv
+done
+# Newton with regularized limiters and continuation
+python3 $S --jobs $J --cases $C123 --n 16 32 64 128 \
+        --meshes uniform shishkin_r bakhvalov_shishkin bakhvalov --variants plain loff --solver newton_cont
+# Example 3 at n = 32 with the three solvers
+for sv in fp_anderson_safe newton_cont; do
+  python3 $S --jobs $J --cases 3:1e-8 --n 32 --meshes uniform shishkin_r shishkin_x --solver $sv
+done
+# Example 4 (straight interior layer)
+for sv in fixed_point fp_anderson_safe newton_cont; do
+  python3 $S --jobs $J --cases 4:1e-8 --n 16 32 64 \
+          --meshes uniform shishkin_r bakhvalov_shishkin bakhvalov --variants plain loff --solver $sv
+done
+# Example 5 (profile along circles), with the relaxed limiter mu = 2
+for sv in fixed_point fp_anderson_safe newton_cont; do
+  python3 $S --jobs $J --cases 5:1e-5 --n 32 64 \
+          --meshes uniform polar polar_layer tensor_layer --variants plain loff mu2 --solver $sv
+done
+# the tables from all runs (reads the records only)
+python3 $S --report-only --name ex123   --cases $C123 --n 16 32 64 128 --meshes uniform shishkin_r shishkin_l shishkin_x
+python3 $S --report-only --name ex3_n32 --cases 3:1e-8 --n 32 --meshes uniform shishkin_r shishkin_x
+python3 $S --report-only --name ex4     --cases 4:1e-8 --n 16 32 64 --meshes uniform shishkin_r bakhvalov_shishkin bakhvalov
+python3 $S --report-only --name ex5     --cases 5:1e-5 --n 32 64 --meshes uniform polar polar_layer tensor_layer
+```
+
+About 3900 runs. Most take seconds; the expensive ones are the fixed point runs at n = 128 that
+reach the limit of 3000 iterations. Several hours to a day on 8 cores is an estimate, not a
+measurement: each step was tested at n <= 32 only.
+
+## Output
+
+Everything is in `build/cd_aniso/`: one folder per run,
+`cd_<example>_<name>_eps<eps>_<mesh>_n<n>_<method>[_<variant>][_<solver>]`, with the ParMooN
+input, the log, the nodal values (17 digits), the edges of the Galerkin matrix, and
+`cd_<example>_record.json` (all measures, iterations, residual, convergence, mesh data, wall
+time). Solver suffixes: `_aa` Anderson, `_aas` Anderson with safeguard, `_nw` Newton, `_nc`
+Newton with continuation. The tables of the last four commands:
+
+| ParMooN file `cd_aniso/cd_aniso_...` | table of the paper |
+|---|---|
+| `ex123_accuracy.tex` | `aniso_accuracy` |
+| `ex123_dmp.tex` | `aniso_dmp` |
+| `ex123_iterations.tex` | `aniso_efficiency` |
+| `ex123_mesh.tex` | `aniso_mesh` |
+| `ex123_switch_roff.tex` | `aniso_roff` |
+| `ex123_layermesh_it.tex`, `ex123_layermesh_acc.tex` | `aniso_layermesh_it`, `aniso_layermesh_acc` |
+| `ex123_solvers.tex` | `aniso_anderson` |
+| `ex123_solved.tex` | `aniso_newton_all` |
+| `ex3_n32_solvers.tex` | `aniso_newton_reg` (without wall times) |
+| `ex4_ex4.tex` | `aniso_interior` |
+| `ex5_ex5.tex` | `aniso_rotating` |
+| `ex123_errors.pdf` | figure `aniso_errors.png` |
+
+Failed runs (e.g. a mesh that cannot be built, such as the layer-adapted polar mesh at n = 16)
+are recorded with `"failed": true` and a reason; list them with
+`grep -l '"failed": true' cd_aniso/*/*_record.json`.
+
+## Not yet produced
+
+- Seven figures of the paper: `aniso_meshes`, `aniso_iterations`, `interior_cut_shishkin_n64`,
+  `interior_errors`, `rotating_outlet_polar_layer_n64`, `rotating_solutions_n64`,
+  `rotating_errors` (the data are in the run folders).
+- In the tables: the wall times of `aniso_newton_reg` (recorded as `wall_time`), the column
+  max u_h of Kuzmin for Example 3 in `aniso_layermesh_acc`, and the rows with mu = 2 in
+  `aniso_rotating` (the runs are done).
+
+## What to expect against the galerkit results
+
+- Errors, DMP certificates and local DMP agree with galerkit wherever both codes converge
+  (checked for Example 1). The L2 errors of Examples 1, 2 are ParMooN's (its quadrature; within
+  2e-4 relative of galerkit's); those of Examples 4, 5 are the discrete lumped norms of the paper.
+- The fixed point iteration uses ParMooN's dynamic damping. Its iteration counts, and therefore
+  which runs reach the limit of 3000 iterations, differ from the paper's tables.
+- Anderson with safeguard: the same convergence, counts within a few percent, the same numbers of
+  safeguard rejections. For S-BBK the count depends on round-off (318 or 226 iterations for the
+  same solution on two machines).
+- Newton with continuation: the continuation stages equal galerkit's in most cases; the final
+  Newton steps on sigma = 0 can take a few more iterations (finite-difference instead of exact
+  Jacobian).
+- The stopping criterion is the Euclidean residual 1e-10 of the paper: ParMooN multiplies
+  `afc_nonlinloop_epsilon` by sqrt(N), and `run_study.py` passes 1e-10 / sqrt(N).
+
+## Troubleshooting
+
+| symptom | cause and remedy |
+|---|---|
+| `ValueError: Wrong number of columns` in `read_edges`, during step 3 | fixed in `1f16349` (eps was not in the run folder names; Example 1 with two eps shared folders). Pull, `rm -rf cd_aniso`, restart. |
+| `git pull` refuses: local changes to `run_study.py` / `regression.py` | a patch was applied by hand: `git checkout -- scripts/aniso_afc/run_study.py scripts/aniso_afc/regression.py`, then pull |
+| `TypeError ... capture_output` in `regression.py` | Python 3.6; fixed in `1f16349` |
+| regression FAIL with equal error, other iteration count | round-off in a sensitive case; fixed in `956eeb4` for Anderson with S-BBK. Other such cases: `--it-tol 0.5`; report a different error or a change of convergence |
+| `the weights beta of fbbk could not be computed` | fixed in `35c2dbf` (Jacobi rotation in the weight QP) |
+| `--report-only` stops with `max() arg is an empty sequence` (e.g. `--name ex5`) | the case has no runs yet (check `ls -d cd_aniso/cd_rotating_profile_* \| wc -l`): run its step first. Since `cb6f6b1` the report says so instead of crashing, and writes only the tables of the requested cases. |
+
+## Parameter reference
+
+Parameters of `AlgebraicStabilization` (default in brackets):
+
+| parameter | meaning |
+|---|---|
+| `algstab_method` (`none`) | `bjk`, `kuzmin_edge`, `mc`, `muas`, `smuas`, `bbk`, `fbbk`, `sbbk`; needs `algebraic_flux_correction: afc`, `afc_iteration_scheme: fixed_point_rhs`, `afc_initial_iterate: afc_zero` |
+| `algstab_solver` (`fixed_point`) | `fixed_point`, `fp_anderson`, `fp_anderson_safe`, `newton`, `newton_cont` |
+| `algstab_resolved_off` (false), `algstab_pe_threshold` (1) | stabilization off where \|b(x_E)\| \|E\| / (2 eps) <= threshold |
+| `algstab_layer_off` (false), `algstab_aspect_threshold` (10) | off along the layers (long edges of cells with aspect ratio >= threshold; 3 on polar meshes) |
+| `algstab_q_relax` (1) | relaxed limiters, mu |
+| `algstab_anderson_depth` (10), `algstab_anderson_window` (10), `algstab_restart` (200), `algstab_omega_min` (1e-4) | Anderson acceleration and its safeguard |
+| `algstab_reg` (1e-6), `algstab_newton_maxit` (40), `algstab_fd_step` (1e-10) | Newton continuation: target sigma, iterations per stage, finite-difference step |
+| `algstab_bbk_p` (10), `algstab_bbk_C0` (3), `algstab_bbk_beta0` (0.1) | BBK-type methods: exponent, edge weight C0 \|E\|, lower bound of the F-BBK weights |
+| `algstab_smuas_weights` (`67`) | SMUAS weights (67) or (68) |
+| `algstab_tie_tol` (1e-10) | Kuzmin: a_ij = a_ji up to this relative tolerance counts as a tie |
+| `algstab_write_nodal`, `algstab_write_edges`, `algstab_test_b` (empty) | output: nodal values (17 digits), edges with d_ij and switches, b_ij(u) for a given u |
+
+SUPG in the study uses `space_discretization_type: supg`, `SDFEM_TYPE: 2`, `CELL_MEASURE: 4`
+(the coth formula with the cell size in the direction of b; ParMooN's default uses the cell
+diameter and gives errors of order 1 on the Shishkin meshes).
+
+## Findings for the paper
+
+- **MUAS in ParMooN.** `afc_limiter: MUAS_MAX` is the MUAS of the paper; `afc_limiter: MUAS` is
+  a different variant. The old `afc_limiter: BBK` is an edge form of S-BBK type, not BBK.
+- **Kuzmin on crossed meshes.** Many edges have a_ij = a_ji, exactly or up to round-off; with an
+  exact comparison the round-off of the assembly decides the owner of an edge.
+- **S-BBK on the Shishkin "/" mesh.** At least two solutions, 3.9e-6 apart, each with residual
+  about 1e-13; which one is reached depends on the start.
+- **Fixed point and Newton.** BJK on a Shishkin mesh with reaction: the fixed point iteration
+  stalls at residual 4.9e-3 after 1e5 iterations; Newton converges in 12 iterations.
+- **The regularization is not symmetric.** The smoothed maximum b + pos_sigma(a - b) gives
+  max_sigma(a, 0) = a^2/(a + sigma) but max_sigma(0, a) = a, so the regularized b_ij depends on
+  the orientation of the edge, i.e. on the node numbering, at O(sigma). It disappears after the
+  final Newton steps on sigma = 0; a symmetric form (a + b + |a - b|_sigma)/2 would avoid it.
+- **Finite-difference Jacobian.** galerkit's step 1e-7 (`reg_jacobian="fd"`) is too coarse for
+  sigma = 1e-6 and fails in the final Newton steps on sigma = 0; 1e-10 reproduces the exact
+  Jacobian's continuation.
+- **Wording in the paper.** The orders "about 1.55" and "0.95" refer to n; with respect to
+  N^{-1} ln N (the reference slope of Figure 2) they are 2.01 and 1.22. The "L2 errors" of
+  Examples 4, 5 are lumped nodal norms. For runs that were not solved, "best iterate" includes
+  the Newton fallback.
+
+## Verification against galerkit (branch `feature/anisotropic-afc`)
+
+- Galerkin: equal to round-off on uniform, Shishkin, crossed and polar meshes (Examples 1, 3, 4, 5, 28).
+- b_ij(u) of all eight methods: equal to round-off for random u and the solution, with the
+  switches, mu = 2, Neumann nodes; the regularized b_ij(u) of seven methods (not MC): equal to
+  round-off for sigma = 1e-2 and 1e-5.
+- Meshes: 72 meshes identical (points and triangles); the statistics equal the mesh table.
+- Measures: equal to `results.json` (Example 1); Laplace counts equal to the mesh table.
+- Solvers: Anderson with safeguard and Newton with continuation as described above.
