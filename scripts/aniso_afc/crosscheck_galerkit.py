@@ -40,6 +40,7 @@ PAIRS = [
     ("afc_kuzmin", "algstab:kuzmin_edge", {}),
     ("bbk", "algstab:bbk", {}),
     ("sbbk", "algstab:sbbk", {}),
+    ("fbbk", "algstab:fbbk", {}),
     ("smuas", "algstab:smuas", {}),
 ]
 

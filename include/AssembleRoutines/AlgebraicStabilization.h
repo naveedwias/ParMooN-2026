@@ -32,10 +32,16 @@
  *               xi_i = |sum_j (u_i - u_j)| / sum_j |u_i - u_j| over the edge
  *               neighbours (0 if the denominator vanishes and at Dirichlet
  *               nodes), p = algstab_bbk_p.
- *  sbbk         edge form of Allendes, Barrenechea & Rankin (2017) with
- *               beta_ij = 1 ("S-BBK"): b_ij = -C0 |E| max{xi_i, xi_j}^p on
- *               every mesh edge, xi_i = 0 on the boundary of the domain,
- *               C0 = algstab_bbk_C0.
+ *  fbbk         edge form of Allendes, Barrenechea & Rankin, SISC 39 (2017),
+ *               (33)-(37) ("F-BBK"): b_ij = -C0 |E| max{xi_i, xi_j}^p on every
+ *               mesh edge, xi_i = |sum_j beta_ij (u_i - u_j)| /
+ *               sum_j beta_ij |u_i - u_j| at interior free nodes, 0 on the
+ *               boundary of the domain; beta_ij = argmin sum_j |beta_ij - 1|^2
+ *               subject to sum_j beta_ij (x_j - x_i) = 0 and beta_ij >= beta0
+ *               (a strictly convex QP per node: primal active set, dual
+ *               semismooth Newton as fallback), beta = 1 on symmetric patches;
+ *               C0 = algstab_bbk_C0, beta0 = algstab_bbk_beta0.
+ *  sbbk         the same with beta_ij = 1 ("S-BBK").
  *  smuas        Knobloch, Numer. Algorithms 94 (2023), (60)-(68):
  *               b_ij = -max{beta_ij a_ij, 0, beta_ji a_ji},
  *               P_i^+- = sum_j p_ij {(u_i - u_j)^+- + (u_i - u_ij)^+-},
@@ -64,7 +70,7 @@ class FEMatrix;
 
 namespace AlgebraicStabilization
 {
-/// algstab_method (none, kuzmin_edge, bbk, sbbk, smuas) and the parameters
+/// algstab_method (none, kuzmin_edge, bbk, fbbk, sbbk, smuas) and the parameters
 ParameterDatabase default_database();
 
 /// true if algstab_method is not 'none'
@@ -114,6 +120,9 @@ class Operator
     std::vector<double> b_kuzmin(const std::vector<double>& u) const;
     std::vector<double> b_bbk(const std::vector<double>& u) const;
     std::vector<double> b_sbbk(const std::vector<double>& u) const;
+    // fbbk: weights beta on the directed edges (e: I -> J, e + n_edges: J -> I)
+    std::vector<double> beta_dir;
+    void setup_fbbk(double beta0);
     std::vector<double> b_smuas(const std::vector<double>& u) const;
     void setup_geometry(const FEMatrix& A);
     void setup_smuas(const FEMatrix& A, const std::string& weights);

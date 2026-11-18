@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 
 #include "BaseCell.h"
 #include "Collection.h"
@@ -24,13 +25,15 @@ ParameterDatabase default_database()
          "kuzmin_edge (AFC, Kuzmin limiter, one owner per edge), bbk "
          "(b_ij = d_ij max{xi_i, xi_j}^p), sbbk (b_ij = -C0 |E| max{xi}^p), "
          "smuas (Knobloch 2023)",
-         {"none", "kuzmin_edge", "bbk", "sbbk", "smuas"});
+         {"none", "kuzmin_edge", "bbk", "fbbk", "sbbk", "smuas"});
   db.add("algstab_tie_tol", 1.e-10, "kuzmin_edge: a_ij and a_ji with relative "
          "difference at most this are a tie (owner: the lexicographically "
          "smaller node)", 0., 1.);
   db.add("algstab_bbk_p", 10.0, "exponent p of the BBK-type methods", 0., 1.e3);
   db.add("algstab_bbk_C0", 3.0, "constant C0 of the edge weight C0 |E| (sbbk)",
          0., 1.e10);
+  db.add("algstab_bbk_beta0", 0.1, "lower bound beta0 of the weights beta_ij "
+         "of fbbk", 0., 1.);
   db.add("algstab_smuas_weights", "67", "weights of SMUAS: (67) p_ij = "
          "max{a_ij, 0, a_ji}, q_ij = max{|a_ij|, a_ji}; (68) p_ij = q_ij = 1",
          {"67", "68"});
@@ -101,12 +104,15 @@ Operator::Operator(const FEMatrix& A, const ParameterDatabase& db)
                          || (X[I[e]] == X[J[e]] && Y[I[e]] < Y[J[e]]));
     }
   }
-  else if(method == "sbbk")
+  else if(method == "sbbk" || method == "fbbk")
   {
     const double C0 = db["algstab_bbk_C0"];
     w_edge.resize(I.size());
     for(size_t e = 0; e < I.size(); ++e)
       w_edge[e] = C0 * std::hypot(X[J[e]] - X[I[e]], Y[J[e]] - Y[I[e]]);
+    beta_dir.assign(2*I.size(), 1.);
+    if(method == "fbbk")
+      setup_fbbk(db["algstab_bbk_beta0"]);
   }
   else if(method == "smuas")
     setup_smuas(A, db["algstab_smuas_weights"].get<std::string>());
@@ -249,13 +255,226 @@ void Operator::setup_smuas(const FEMatrix& A, const std::string& weights)
   }
 }
 
+namespace
+{
+// pseudo-inverse solve of the symmetric 2x2 system M x = r (galerkit: lstsq)
+void solve2_pinv(const double M[2][2], const double r[2], double x[2])
+{
+  const double a = M[0][0], b = M[0][1], dd = M[1][1];
+  const double tr = a + dd, det = a*dd - b*b;
+  const double disc = std::sqrt(std::max(0., 0.25*(a - dd)*(a - dd) + b*b));
+  const double l1 = 0.5*tr + disc, l2 = 0.5*tr - disc;     // l1 >= l2
+  const double cut = std::numeric_limits<double>::epsilon()*2.*std::abs(l1);
+  // eigenvectors
+  double v1[2], v2[2];
+  if(std::abs(b) > 0.)
+  {
+    v1[0] = l1 - dd; v1[1] = b;
+  }
+  else if(a >= dd)
+  {
+    v1[0] = 1.; v1[1] = 0.;
+  }
+  else
+  {
+    v1[0] = 0.; v1[1] = 1.;
+  }
+  const double n1 = std::hypot(v1[0], v1[1]);
+  v1[0] /= n1; v1[1] /= n1;
+  v2[0] = -v1[1]; v2[1] = v1[0];
+  x[0] = x[1] = 0.;
+  if(std::abs(l1) > cut)
+  {
+    const double c1 = (v1[0]*r[0] + v1[1]*r[1])/l1;
+    x[0] += c1*v1[0]; x[1] += c1*v1[1];
+  }
+  if(std::abs(l2) > cut)
+  {
+    const double c2 = (v2[0]*r[0] + v2[1]*r[1])/l2;
+    x[0] += c2*v2[0]; x[1] += c2*v2[1];
+  }
+  (void) det;
+}
+
+// argmin |x - 1|^2 subject to T x = 0, x >= beta0 (T: 2 x k, rows scaled to
+// unit maximum); primal active set as galerkit _ldp, dual semismooth Newton as
+// fallback (galerkit _ldp_dual)
+std::vector<double> ldp(std::vector<double> T0, std::vector<double> T1, double beta0)
+{
+  const size_t k = T0.size();
+  double r0 = 0., r1 = 0.;
+  for(size_t j = 0; j < k; ++j)
+  {
+    r0 = std::max(r0, std::abs(T0[j]));
+    r1 = std::max(r1, std::abs(T1[j]));
+  }
+  int rows = 0;
+  std::vector<double> T[2];
+  if(r0 > 0.) { for(auto& t : T0) t /= r0; T[rows++] = T0; }
+  if(r1 > 0.) { for(auto& t : T1) t /= r1; T[rows++] = T1; }
+  std::vector<char> act(k, 0);
+  std::vector<double> x(k, beta0);
+  for(int it = 0; it < 500; ++it)
+  {
+    double M[2][2] = {{0., 0.}, {0., 0.}}, rhs[2] = {0., 0.}, lam[2] = {0., 0.};
+    for(size_t j = 0; j < k; ++j)
+      for(int a = 0; a < rows; ++a)
+      {
+        if(!act[j])
+        {
+          rhs[a] += T[a][j];
+          for(int b2 = 0; b2 < rows; ++b2)
+            M[a][b2] += T[a][j]*T[b2][j];
+        }
+        else
+          rhs[a] += beta0*T[a][j];
+      }
+    if(rows == 1)
+      lam[0] = M[0][0] != 0. ? rhs[0]/M[0][0] : 0.;
+    else
+      solve2_pinv(M, rhs, lam);
+    double xmin = 1e300;
+    size_t jmin = 0;
+    for(size_t j = 0; j < k; ++j)
+    {
+      if(act[j]) { x[j] = beta0; continue; }
+      double tl = 0.;
+      for(int a = 0; a < rows; ++a)
+        tl += T[a][j]*lam[a];
+      x[j] = 1. - tl;
+      if(x[j] < xmin) { xmin = x[j]; jmin = j; }
+    }
+    if(xmin < beta0*(1. - 1e-12))
+    {
+      act[jmin] = 1;
+      continue;
+    }
+    // multipliers of the active bounds
+    double lmax = 0.;
+    for(int a = 0; a < rows; ++a)
+      lmax = std::max(lmax, std::abs(lam[a]));
+    double mumin = 1e300;
+    size_t jm = 0;
+    bool any = false;
+    for(size_t j = 0; j < k; ++j)
+      if(act[j])
+      {
+        double mu = beta0 - 1.;
+        for(int a = 0; a < rows; ++a)
+          mu += T[a][j]*lam[a];
+        if(mu < mumin) { mumin = mu; jm = j; }
+        any = true;
+      }
+    if(any && mumin < -1e-10*std::max(1., lmax))
+    {
+      act[jm] = 0;
+      continue;
+    }
+    for(auto& v : x)
+      v = std::max(v, beta0);
+    return x;
+  }
+  // dual: x(lam) = max(beta0, 1 - T^T lam), semismooth Newton on T x(lam) = 0
+  double lam[2] = {0., 0.};
+  auto xr = [&](const double l[2], std::vector<double>& xx, double r[2])
+  {
+    r[0] = r[1] = 0.;
+    for(size_t j = 0; j < k; ++j)
+    {
+      double tl = 0.;
+      for(int a = 0; a < rows; ++a)
+        tl += T[a][j]*l[a];
+      xx[j] = std::max(beta0, 1. - tl);
+      for(int a = 0; a < rows; ++a)
+        r[a] += T[a][j]*xx[j];
+    }
+  };
+  double r[2];
+  xr(lam, x, r);
+  for(int it = 0; it < 200; ++it)
+  {
+    double scale = 1e-300;
+    for(size_t j = 0; j < k; ++j)
+      for(int a = 0; a < rows; ++a)
+        scale += std::abs(T[a][j])*std::abs(x[j]);
+    const double nr = std::hypot(r[0], r[1]);
+    if(nr <= 1e-12*scale)
+      return x;
+    double Jm[2][2] = {{0., 0.}, {0., 0.}};
+    for(size_t j = 0; j < k; ++j)
+    {
+      double tl = 0.;
+      for(int a = 0; a < rows; ++a)
+        tl += T[a][j]*lam[a];
+      if(1. - tl > beta0)
+        for(int a = 0; a < rows; ++a)
+          for(int b2 = 0; b2 < rows; ++b2)
+            Jm[a][b2] -= T[a][j]*T[b2][j];
+    }
+    double mr[2] = {-r[0], -r[1]}, step[2] = {0., 0.};
+    if(rows == 1)
+      step[0] = Jm[0][0] != 0. ? mr[0]/Jm[0][0] : 0.;
+    else
+      solve2_pinv(Jm, mr, step);
+    double t = 1.;
+    std::vector<double> xn(k);
+    double rn[2], ln[2];
+    for(int ls = 0; ls < 60; ++ls)
+    {
+      ln[0] = lam[0] + t*step[0];
+      ln[1] = lam[1] + t*step[1];
+      xr(ln, xn, rn);
+      if(std::hypot(rn[0], rn[1]) < nr)
+        break;
+      t *= 0.5;
+    }
+    lam[0] = ln[0]; lam[1] = ln[1];
+    x = xn; r[0] = rn[0]; r[1] = rn[1];
+  }
+  ErrThrow("AlgebraicStabilization: the weights beta of fbbk could not be computed");
+}
+} // namespace
+
+void Operator::setup_fbbk(double beta0)
+{
+  // directed edges by source node
+  const size_t ne = I.size();
+  std::vector<std::vector<size_t>> out(N);
+  for(size_t e = 0; e < ne; ++e)
+  {
+    out[I[e]].push_back(e);           // I -> J
+    out[J[e]].push_back(e + ne);      // J -> I
+  }
+  for(int i = 0; i < n_free; ++i)
+  {
+    if(on_boundary[i] || out[i].empty())
+      continue;
+    std::vector<double> T0, T1;
+    double tmax = 0., s0 = 0., s1 = 0.;
+    for(size_t k : out[i])
+    {
+      const int j = k < ne ? J[k] : I[k - ne];
+      T0.push_back(X[j] - X[i]);
+      T1.push_back(Y[j] - Y[i]);
+      tmax = std::max(tmax, std::max(std::abs(T0.back()), std::abs(T1.back())));
+      s0 += T0.back();
+      s1 += T1.back();
+    }
+    if(std::hypot(s0, s1) <= 1e-12*tmax)
+      continue;                       // symmetric patch: beta = 1
+    const std::vector<double> b = ldp(T0, T1, beta0);
+    for(size_t m = 0; m < out[i].size(); ++m)
+      beta_dir[out[i][m]] = b[m];
+  }
+}
+
 std::vector<double> Operator::b_edges(const std::vector<double>& u) const
 {
   if(method == "kuzmin_edge")
     return b_kuzmin(u);
   if(method == "bbk")
     return b_bbk(u);
-  if(method == "sbbk")
+  if(method == "sbbk" || method == "fbbk")
     return b_sbbk(u);
   return b_smuas(u);
 }
@@ -321,11 +540,12 @@ std::vector<double> Operator::b_sbbk(const std::vector<double>& u) const
 {
   const size_t ne = I.size();
   std::vector<double> num(N, 0.), den(N, 0.);
-  for(size_t e = 0; e < ne; ++e)
+  for(size_t e = 0; e < ne; ++e)              // beta_dir = 1 for sbbk
   {
     const double du = u[I[e]] - u[J[e]];
-    num[I[e]] += du;   num[J[e]] -= du;
-    den[I[e]] += std::abs(du);   den[J[e]] += std::abs(du);
+    const double bI = beta_dir[e], bJ = beta_dir[e + ne];
+    num[I[e]] += bI*du;   num[J[e]] -= bJ*du;
+    den[I[e]] += bI*std::abs(du);   den[J[e]] += bJ*std::abs(du);
   }
   std::vector<double> xi(N, 0.);
   for(int i = 0; i < n_free; ++i)               // 0 on the boundary of the domain
