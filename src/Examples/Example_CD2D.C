@@ -61,6 +61,10 @@ namespace boundary_layer_known
 {
   #include "CD_2D/boundary_layer_known.h"
 }
+namespace aniso_exp_layer          // case 27
+{
+#include "CD_2D/aniso_exp_layer.h"
+}
 
 namespace example_1_ABR17
 {
@@ -595,6 +599,15 @@ Example_CD2D::Example_CD2D(const ParameterDatabase& user_input_parameter_db)
       species_in_cavity::ExampleFile();
       break;
       
+    case 27: // exponential layer at x = 1 (anisotropic AFC study, Example 1)
+      exact_solution.push_back( aniso_exp_layer::Exact );
+      boundary_conditions.push_back( aniso_exp_layer::BoundCondition );
+      boundary_data.push_back( aniso_exp_layer::BoundValue );
+      problem_coefficients = aniso_exp_layer::BilinearCoeffs;
+      aniso_exp_layer::DIFFUSION = this->get_nu();
+      aniso_exp_layer::ExampleFile();
+      break;
+
     default:
       ErrThrow("Unknown name of the convection-diffusion (CD2D) example!", 
                example_code);
