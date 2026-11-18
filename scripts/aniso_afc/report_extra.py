@@ -48,7 +48,11 @@ def _keys(ex):
 
 def report_extra(outdir, study, cases, methods, ns):
     R = load(outdir)
+    # only the runs of the requested cases (other examples' runs are in the same folder)
+    R = [r for r in R if (r.get("example"), r.get("eps")) in {(ex, eps) for ex, eps in cases}]
     if not R:
+        print("report_extra: no runs for the cases " + ", ".join(f"{ex}:{eps:g}" for ex, eps in cases)
+              + " - run them first")
         return
     pre = "cd_aniso"
     nmax = max(ns)
@@ -178,6 +182,9 @@ def report_extra(outdir, study, cases, methods, ns):
     # Examples 4 and 5: per mesh, + off; the best solver: Newton continuation, else Anderson, else fixed point
     for ex, eps in cases:
         if ex not in (4, 5):
+            continue
+        if not any(r["example"] == ex and r["eps"] == eps for r in R):
+            print(f"report_extra: no runs for Example {ex}, eps = {eps:g}")
             continue
         ms = [m for m in (("uniform", "shishkin_r", "bakhvalov_shishkin", "bakhvalov") if ex == 4
                           else ("uniform", "polar", "polar_layer", "tensor_layer"))

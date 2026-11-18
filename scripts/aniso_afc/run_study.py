@@ -267,6 +267,11 @@ def mism(s):
 def report(outdir, study, cases, meshes, methods, ns, solver="fixed_point"):
     R = [r for r in load(outdir) if r.get("variant", "plain") in ("plain", "roff", "loff", "mu2")
          and r.get("solver", "fixed_point") in (solver, "linear")]
+    missing = [f"{ex}:{eps:g}" for ex, eps in cases if not any(r.get("example") == ex and r.get("eps") == eps
+                                                              for r in R)]
+    if missing:
+        print("report: no runs (solver " + solver + ") for the cases " + ", ".join(missing)
+              + " - their tables stay empty")
     study = study + SOLVER_SUFFIX[solver]
     n1, n0 = max(ns), (sorted(ns)[-2] if len(ns) > 1 else None)
     acc_meshes = [m for m in ("uniform", "shishkin_r", "shishkin_x") if m in meshes]
