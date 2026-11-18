@@ -46,7 +46,9 @@ def _keys(ex):
             5: ("L2_r1_lumped", "Linf_r1")}[ex]
 
 
-def report_extra(outdir, study, cases, methods, ns):
+def report_extra(outdir, study, cases, methods, ns, write_dir=None):
+    """tables from the run records in outdir, written to write_dir (default: outdir)"""
+    wdir = write_dir or outdir
     R = load(outdir)
     # only the runs of the requested cases (other examples' runs are in the same folder)
     R = [r for r in R if (r.get("example"), r.get("eps")) in {(ex, eps) for ex, eps in cases}]
@@ -89,7 +91,7 @@ def report_extra(outdir, study, cases, methods, ns):
                 lines.append(f"{LABEL[meth]} & " + " & ".join(cells) + " \\\\")
             lines += ["\\bottomrule", "\\end{tabular}}", "\\end{table}", ""]
         if lines:
-            _write(outdir, f"{pre}_{study}_switch_{var}.tex", lines)
+            _write(wdir, f"{pre}_{study}_switch_{var}.tex", lines)
     # layer-adapted meshes
     lm = [m for m in LAYER_MESHES if any(r["mesh"] == m for r in R)]
     if any(m in ("bakhvalov_shishkin", "bakhvalov", "duran") for m in lm):
@@ -117,7 +119,7 @@ def report_extra(outdir, study, cases, methods, ns):
                         cells += [_err(r, "L2"), _err(r, "Linf_away")]
             lines.append(f"{MESH_LABEL[m]}{' + off' if v == 'loff' else ''} & " + " & ".join(cells) + " \\\\")
         lines += ["\\bottomrule", "\\end{tabular}}", "\\end{table}", ""]
-        _write(outdir, f"{pre}_{study}_layermesh_acc.tex", lines)
+        _write(wdir, f"{pre}_{study}_layermesh_acc.tex", lines)
         lines = ["\\begin{table}[!htbp]", "\\centering\\scriptsize\\setlength{\\tabcolsep}{3pt}",
                  f"\\caption{{Iterations of the fixed point iteration on the layer-adapted meshes, $n={nmax}$; "
                  "\\mism{colour}: not converged; + off: switched off along the layers.}",
@@ -130,7 +132,7 @@ def report_extra(outdir, study, cases, methods, ns):
                                  solver="fixed_point")) for meth in afc]
                 lines.append(f"{MESH_LABEL[m]}{' + off' if v == 'loff' else ''} & " + " & ".join(cells) + " \\\\")
         lines += ["\\bottomrule", "\\end{tabular}}", "\\end{table}", ""]
-        _write(outdir, f"{pre}_{study}_layermesh_it.tex", lines)
+        _write(wdir, f"{pre}_{study}_layermesh_it.tex", lines)
     # solvers
     solvers = [s for s in SOLVER_LABEL if any(r.get("solver") == s for r in R)]
     if len(solvers) > 1:
@@ -152,7 +154,7 @@ def report_extra(outdir, study, cases, methods, ns):
                                      solver=sv)) for meth in afc]
                     lines.append(f"{MESH_LABEL[m]}, {SOLVER_LABEL[sv]} & " + " & ".join(cells) + " \\\\")
         lines += ["\\bottomrule", "\\end{tabular}}", "\\end{table}", ""]
-        _write(outdir, f"{pre}_{study}_solvers.tex", lines)
+        _write(wdir, f"{pre}_{study}_solvers.tex", lines)
     # solved runs: fixed point / Newton continuation
     if any(r.get("solver") == "newton_cont" for r in R):
         nc = [m for m in afc if m != "mc"]
@@ -178,7 +180,7 @@ def report_extra(outdir, study, cases, methods, ns):
                         cells.append(f"{cnt[0]}/{cnt[1]}")
                     lines.append(f"{MESH_LABEL[m]}{' + off' if v == 'loff' else ''} & " + " & ".join(cells) + " \\\\")
         lines += ["\\bottomrule", "\\end{tabular}", "\\end{table}", ""]
-        _write(outdir, f"{pre}_{study}_solved.tex", lines)
+        _write(wdir, f"{pre}_{study}_solved.tex", lines)
     # Examples 4 and 5: per mesh, + off; the best solver: Newton continuation, else Anderson, else fixed point
     for ex, eps in cases:
         if ex not in (4, 5):
@@ -222,4 +224,4 @@ def report_extra(outdir, study, cases, methods, ns):
                             cells.append(_err(r, k) if k != "undershoot" else tex_num(r[k]))
                 lines.append(f"{LABEL[meth]}{' + off' if v == 'loff' else ''} & " + " & ".join(cells) + " \\\\")
         lines += ["\\bottomrule", "\\end{tabular}}", "\\end{table}", ""]
-        _write(outdir, f"{pre}_{study}_ex{ex}.tex", lines)
+        _write(wdir, f"{pre}_{study}_ex{ex}.tex", lines)
