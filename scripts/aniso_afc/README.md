@@ -43,7 +43,10 @@ the criterion |r|_2 <= tol of the paper use tol / sqrt(N) (`run_study.py` does).
 - `geo_io.py`: points and triangles -> ParMooN `.GEO` (Default_UnitSquare).
 - `measures.py`: errors, reference solutions (erfc; radial heat equation), DMP certificate,
   local DMP, Laplace > 0 edges.
-- `run_study.py`: the study (runs, records, LaTeX tables, figure); see its docstring.
+- `run_study.py`: the study (runs, LaTeX tables, figure; `--paper`); see its docstring.
+- `store.py`: storage of the runs, one folder per example: `<prefix>_runs.jsonl` (one line per
+  run), `_runs.csv`, `_failed.log`, `_solutions.npz`.
+- `convert_runs.py`: runs of earlier versions (one folder per run) into this layout.
 - `crosscheck_galerkit.py`, `test_b_galerkit.py`: comparisons with galerkit (solutions;
   b_ij(u) edge by edge). Require galerkit (`pip install -e <galerkit>`).
 

@@ -3,7 +3,7 @@
 The ParMooN version of the study in the paper *Algebraically stabilized finite element methods on
 layer-adapted meshes: accuracy, discrete maximum principle and nonlinear solvers*
 (galerkit-latex, `convection_diffusion/anisotropic_afc`). Everything below refers to commit
-`307aee0` or later. All commands are run from the build directory, which sits next to the source
+`db77b0c` or later. All commands are run from the build directory, which sits next to the source
 tree (`build/` and `ParMooN-2026/` in the same parent directory). The tools themselves are
 described in `scripts/aniso_afc/README.md`.
 
@@ -15,7 +15,7 @@ described in `scripts/aniso_afc/README.md`.
 | fixed point iteration, Anderson acceleration with safeguard, Newton with continuation | `ConvectionDiffusion_AFC::solve`, `solve_algstab_anderson`, `solve_algstab_newton` (`src/System/ConvectionDiffusion_AFC.C`) |
 | program | `cd2d_afc` (`2DPrograms/CD2D_AFC_ParMooN.C`) |
 | Examples 1-5 of the paper | `Example_CD2D` 27, 7, 18, 29, 30 (28: cross-check problem b = (2,3), c = 1) |
-| meshes, measures, study, tables, regression | `scripts/aniso_afc/` (`meshes.py`, `measures.py`, `run_study.py`, `report_extra.py`, `regression.py`) |
+| meshes, measures, study, storage of the runs, tables, regression | `scripts/aniso_afc/` (`meshes.py`, `measures.py`, `run_study.py`, `store.py`, `report_extra.py`, `regression.py`, `convert_runs.py`) |
 
 ## Build and check
 
@@ -32,7 +32,8 @@ must print `18 of 18 cases passed`. Python 3.6 or later with numpy and scipy is 
 ## Reproducing the paper's results
 
 Finished runs are skipped, so every command can be stopped and repeated, and the steps can be
-spread over several sessions. `J` is the number of parallel runs.
+spread over several sessions. Run one step at a time in a run folder: a second step in the same
+`cd_aniso/` stops with a message (`cd_aniso/.lock`). `J` is the number of parallel runs.
 
 ```bash
 S=../ParMooN-2026/scripts/aniso_afc/run_study.py
@@ -94,18 +95,50 @@ names, ready to replace the files in the paper's `tables/` folder:
 | `aniso_interior.tex`, `aniso_rotating.tex` | Examples 4 and 5 |
 | `aniso_errors.pdf` | L2 errors against the number of nodes (PDF instead of the paper's PNG) |
 
-**`cd_aniso/`: the runs** (raw data, not needed for the paper): one folder per run,
-`cd_<example>_<name>_eps<eps>_<mesh>_n<n>_<method>[_<variant>][_<solver>]`, with the ParMooN
-input, the log, the nodal values (17 digits), the edges of the Galerkin matrix, and
-`cd_<example>_record.json` (all measures, iterations, residual, convergence, mesh data, wall
-time). Solver suffixes: `_aa` Anderson, `_aas` Anderson with safeguard, `_nw` Newton, `_nc`
-Newton with continuation. Files `cd_aniso/cd_aniso_*` at the top of `cd_aniso/` come from
-earlier versions (interim tables) and can be deleted: `rm -f cd_aniso/cd_aniso_*`.
-`--report-only` still writes the tables of given cases there, if needed.
+**`cd_aniso/`: the runs** (raw data, not needed for the paper): one folder per example with
+four files, e.g. for Example 1:
+
+```
+cd_aniso/cd_exp_layer/
+  cd_exp_layer_runs.jsonl      one line per run: parameters, all measures, iterations, status
+  cd_exp_layer_runs.csv        the same as a table (spreadsheet)
+  cd_exp_layer_failed.log      ParMooN logs of runs that failed or did not converge
+  cd_exp_layer_solutions.npz   nodal values (Examples 4, 5 by default; --solutions all / none)
+```
+
+The other folders are `cd_boundary_layers`, `cd_parabolic_layers`, `cd_interior_layer`,
+`cd_rotating_profile`. A line of the `.jsonl` file (Example 1, eps = 1e-4, Shishkin "/", n = 16,
+BJK):
+
+```
+{"run": "eps1e-04_shishkin_r_n16_bjk", "example": 1, "eps": 0.0001, "mesh": "shishkin_r", "n": 16,
+ "method": "bjk", "variant": "plain", "solver": "fixed_point", "wall_time": 0.4, ...,
+ "L2": 0.000677, "Linf_nodes": 0.01628, "Linf_away": 0.001475, "iterations": 192,
+ "residual": 9.76e-11, "converged": true, "certificate": {...}, "local_dmp": {...}, ...}
+```
+
+The run key (`run`) is `eps<eps>_<mesh>_n<n>_<method>[_<variant>][_<solver>]`, with the solver
+suffixes `_aa` (Anderson), `_aas` (Anderson with safeguard), `_nw` (Newton), `_nc` (Newton with
+continuation). A solution: `np.load("cd_rotating_profile_solutions.npz")["eps1e-05_polar_n64_bjk_aas"]`,
+its mesh points: key `xy_eps1e-05_polar_n64`. Every run is computed in a temporary folder
+(`cd_aniso/.scratch`) that is removed afterwards; only the main process writes the four files,
+so parallel runs cannot interfere. A run that was repeated counts with its last line.
 
 Failed runs (e.g. a mesh that cannot be built, such as the layer-adapted polar mesh at n = 16)
-are recorded with `"failed": true` and a reason; list them with
-`grep -l '"failed": true' cd_aniso/*/*_record.json`.
+have `"failed": true` and a reason in the `.jsonl` (column `failed` of the `.csv`) and are not
+repeated, unless `--retry-failed`. `--report-only` still writes the tables of given cases into
+`cd_aniso/`, if needed.
+
+**Runs of an earlier version** (one folder per run, up to `be902fa`) are converted without
+recomputing:
+
+```bash
+python3 ../ParMooN-2026/scripts/aniso_afc/convert_runs.py                # converts, keeps the old folders
+python3 ../ParMooN-2026/scripts/aniso_afc/convert_runs.py --delete-old   # then deletes them
+rm -f cd_aniso/cd_aniso_*                                                # interim tables of earlier versions
+```
+
+The paper tables of converted runs are byte-identical to those of the old layout.
 
 ## Not yet produced
 
@@ -141,6 +174,8 @@ are recorded with `"failed": true` and a reason; list them with
 | `TypeError ... capture_output` in `regression.py` | Python 3.6; fixed in `1f16349` |
 | regression FAIL with equal error, other iteration count | round-off in a sensitive case; fixed in `956eeb4` for Anderson with S-BBK. Other such cases: `--it-tol 0.5`; report a different error or a change of convergence |
 | `the weights beta of fbbk could not be computed` | fixed in `35c2dbf` (Jacobi rotation in the weight QP) |
+| `another run step (process N) is running in .../cd_aniso` | a second run step in the same folder: wait for the first, or stop it (`kill N`). A lock of a process that no longer exists is taken over automatically. |
+| thousands of folders `cd_aniso/cd_<example>_aniso_eps...` | runs of a version up to `be902fa`: `convert_runs.py --delete-old` (see Output) |
 | `--report-only` stops with `max() arg is an empty sequence` (e.g. `--name ex5`), before `cb6f6b1` | the case has no runs yet (check `ls -d cd_aniso/cd_rotating_profile_* \| wc -l`): run its step first. Since `cb6f6b1` the report says so instead of crashing, and writes only the tables of the requested cases. |
 
 ## Parameter reference
