@@ -74,7 +74,30 @@ the criterion |r|_2 <= tol of the paper use tol / sqrt(N) (`run_study.py` does).
   depends on the orientation of the edges at O(sigma); the module orients every edge from the
   lexicographically smaller node (as galerkit's numbering of its tensor-product meshes).
 
-## Not yet implemented
+## Tables
 
-The tables for the switches, the other layer-adapted meshes, the solvers and Examples 4, 5
-in the format of the paper (the runs and records support them).
+`run_study.py` writes, per study and solver, the accuracy, iteration, DMP and mesh tables;
+`report_extra.py` (called by it) the tables for the switches, the layer-adapted meshes
+(accuracy and iterations), all solvers, the solved runs (fixed point / Newton continuation)
+and Examples 4 and 5, in the formats of the paper. A full study, e.g.:
+
+    S=../ParMooN-2026/scripts/aniso_afc/run_study.py
+    python3 $S --jobs 4                                     # Examples 1-3, fixed point
+    python3 $S --jobs 4 --variants plain roff loff          # switches
+    python3 $S --jobs 4 --solver fp_anderson_safe
+    python3 $S --jobs 4 --solver newton_cont --variants plain loff
+    python3 $S --jobs 4 --meshes uniform shishkin_r bakhvalov_shishkin bakhvalov duran \
+                --variants plain loff                       # layer-adapted meshes
+    python3 $S --jobs 4 --cases 4:1e-8 --n 16 32 64 --meshes uniform shishkin_r \
+                bakhvalov_shishkin bakhvalov --variants plain loff --solver newton_cont
+    python3 $S --jobs 4 --cases 5:1e-5 --n 32 64 --meshes uniform polar polar_layer \
+                tensor_layer --variants plain loff --solver newton_cont
+
+Finished runs are skipped, so the commands can be repeated and combined.
+
+## Regression
+
+`python3 regression.py --exe <build>/parMooN_cd2d_afc_SEQUENTIAL`: 18 small cases (all
+methods with the fixed point iteration, Anderson with safeguard, Newton continuation, the
+layer switch on a crossed mesh, Newton on Example 2) against `regression_reference.json`
+(values verified against galerkit).

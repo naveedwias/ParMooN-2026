@@ -1,0 +1,92 @@
+{
+ "ex1_shishkin_fp_bjk": {
+  "iterations": 96,
+  "converged": true,
+  "Linf": 0.041162942031702454
+ },
+ "ex1_shishkin_fp_kuzmin_edge": {
+  "iterations": 31,
+  "converged": true,
+  "Linf": 0.02177162862179427
+ },
+ "ex1_shishkin_fp_mc": {
+  "iterations": 15,
+  "converged": true,
+  "Linf": 0.013600313684523524
+ },
+ "ex1_shishkin_fp_muas": {
+  "iterations": 73,
+  "converged": true,
+  "Linf": 0.041139904076678446
+ },
+ "ex1_shishkin_fp_smuas": {
+  "iterations": 51,
+  "converged": true,
+  "Linf": 0.038640827843165027
+ },
+ "ex1_shishkin_fp_bbk": {
+  "iterations": 174,
+  "converged": true,
+  "Linf": 0.040727277141583085
+ },
+ "ex1_shishkin_fp_fbbk": {
+  "iterations": 488,
+  "converged": true,
+  "Linf": 0.0432876253668667
+ },
+ "ex1_shishkin_fp_sbbk": {
+  "iterations": 730,
+  "converged": true,
+  "Linf": 0.036549930383535933
+ },
+ "ex1_shishkin_aas_bjk": {
+  "iterations": 29,
+  "converged": true,
+  "Linf": 0.041162942138651126
+ },
+ "ex1_shishkin_aas_smuas": {
+  "iterations": 15,
+  "converged": true,
+  "Linf": 0.038640828052084464
+ },
+ "ex1_shishkin_aas_sbbk": {
+  "iterations": 226,
+  "converged": true,
+  "Linf": 0.036549930295521116
+ },
+ "ex1_shishkin_nc_bjk": {
+  "iterations": 36,
+  "converged": true,
+  "Linf": 0.04116294217842176
+ },
+ "ex1_shishkin_nc_muas": {
+  "iterations": 25,
+  "converged": true,
+  "Linf": 0.04113990408502666
+ },
+ "ex1_shishkin_nc_bbk": {
+  "iterations": 32,
+  "converged": true,
+  "Linf": 0.04072727728949033
+ },
+ "ex1_crossed_loff_bjk": {
+  "iterations": 31,
+  "converged": true,
+  "Linf": 0.038287398973674114
+ },
+ "ex1_crossed_loff_kuzmin_edge": {
+  "iterations": 31,
+  "converged": true,
+  "Linf": 0.03829066605938375
+ },
+ "ex1_crossed_loff_muas": {
+  "iterations": 36,
+  "converged": true,
+  "Linf": 0.03828739897283723
+ },
+ "ex2_shishkin_fbbk_nw_fbbk": {
+  "iterations": 21,
+  "converged": true,
+  "Linf": 0.19285897276458852
+ }
+}

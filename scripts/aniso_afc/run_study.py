@@ -137,6 +137,13 @@ SOLVER_SUFFIX = {"fixed_point": "", "fp_anderson": "_aa", "fp_anderson_safe": "_
                  "newton_cont": "_nc"}
 
 
+def mesh_fits(ex, mesh):
+    """polar and tensor_layer meshes only for Example 5, which has no Shishkin-type meshes"""
+    if ex == 5:
+        return mesh in ("uniform", "polar", "polar_layer", "tensor_layer")
+    return mesh not in ("polar", "polar_layer", "tensor_layer")
+
+
 def run_name(study, mesh, n, method, variant, solver="fixed_point"):
     return (f"{study}_{mesh}_n{n}_{method}" + ("" if variant == "plain" else f"_{variant}")
             + ("" if method in LINEAR else SOLVER_SUFFIX[solver]))
@@ -150,7 +157,13 @@ def run_job(job):
     if os.path.exists(rec_file):
         return rec_file
     os.makedirs(rdir, exist_ok=True)
-    P, T = make_mesh(ex, eps, mesh, n)
+    try:
+        P, T = make_mesh(ex, eps, mesh, n)
+    except ValueError as exc:                          # e.g. too few cells for a graded mesh
+        json.dump(dict(example=ex, eps=eps, mesh=mesh, n=n, method=method, variant=variant,
+                       solver="linear" if method in LINEAR else solver, failed=True, reason=str(exc)),
+                  open(rec_file, "w"), indent=1)
+        return rec_file
     geo = os.path.join(rdir, f"{pre}_mesh.GEO")
     write_unit_square_geo(P, T, geo, f"Example {ex}, {mesh}, n = {n}")
     kappa = 3.0 if mesh.startswith("polar") else 10.0
@@ -401,6 +414,7 @@ def main():
                 for ex, eps in cases for m in args.meshes for n in args.n for meth in args.methods
                 for var in args.variants
                 if not (meth in LINEAR and var != "plain")
+                and mesh_fits(ex, m)
                 and not (meth == "mc" and args.solver == "newton_cont")]    # MC: no regularization
         print(f"{len(jobs)} runs")
         t0 = time.perf_counter()
@@ -414,7 +428,10 @@ def main():
                 run_job(job)
                 if k % 20 == 0:
                     print(f"  {k}/{len(jobs)} ({time.perf_counter() - t0:.0f} s)")
-    report(args.outdir, args.name, cases, args.meshes, args.methods, args.n, args.solver)
+    report(args.outdir, args.name, cases, [m for m in args.meshes if any(mesh_fits(ex, m) for ex, _ in cases)],
+           args.methods, args.n, args.solver)
+    from report_extra import report_extra
+    report_extra(args.outdir, args.name, cases, args.methods, args.n)
 
 
 if __name__ == "__main__":
