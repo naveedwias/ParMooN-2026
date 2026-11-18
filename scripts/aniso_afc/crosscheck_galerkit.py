@@ -38,6 +38,9 @@ PAIRS = [
     ("muas", "MUAS_MAX", {}),
     ("bbk", "BBK", {"power_p": "10.0"}),
     # the separate module AlgebraicStabilization (algstab_method)
+    ("afc", "algstab:bjk", {}),
+    ("afc_mc", "algstab:mc", {}),
+    ("muas", "algstab:muas", {}),
     ("afc_kuzmin", "algstab:kuzmin_edge", {}),
     ("bbk", "algstab:bbk", {}),
     ("sbbk", "algstab:sbbk", {}),
@@ -83,8 +86,15 @@ def run_parmoon(exe, workdir, name, geo, example, eps, afc="none", limiter="kuzm
         limiter = "kuzmin"
     txt = DAT.format(name=name, geo=geo, example=example, eps=eps, afc=afc, limiter=limiter, scheme=scheme, tol=run_parmoon.tol)
     extra.setdefault("algstab_write_nodal", name + "_nodal.txt")   # 17 digits (vtk: about 8)
-    for k, v in extra.items():
-        txt += f"{k}: {v}\n"
+    lines = txt.splitlines()
+    for k, v in extra.items():                  # replace a key of the template, else append
+        for i, ln in enumerate(lines):
+            if ln.split(":", 1)[0].strip() == k:
+                lines[i] = f"{k}: {v}"
+                break
+        else:
+            lines.append(f"{k}: {v}")
+    txt = "\n".join(lines) + "\n"
     dat = os.path.join(workdir, name + ".dat")
     open(dat, "w").write(txt)
     with open(os.path.join(workdir, name + ".log"), "w") as log:
@@ -122,6 +132,10 @@ def main():
     ap.add_argument("--scheme", default="fixed_point_rhs", help="ParMooN afc_iteration_scheme")
     ap.add_argument("--pairs", default=None, help="comma-separated ParMooN limiters to test (default: all)")
     ap.add_argument("--tol", type=float, default=1e-12, help="residual tolerance of both codes")
+    ap.add_argument("--loff", action="store_true", help="stabilization off along the layers (both codes)")
+    ap.add_argument("--roff", action="store_true", help="stabilization off where Pe_E <= 1 (both codes)")
+    ap.add_argument("--kappa", type=float, default=10.0, help="aspect ratio threshold of --loff")
+    ap.add_argument("--mu", type=float, default=1.0, help="relaxed limiters R = min{1, mu Q/P} (both codes)")
     ap.add_argument("--no-lexi", action="store_true",
                     help="keep galerkit's vertex numbering (default: lexicographic (x, y), so that both codes "
                          "give a Kuzmin edge with a_ij = a_ji to the same node)")
@@ -182,10 +196,15 @@ def main():
           f"node matching distance {match.max_dist:.1e}, h_min {hmin:.1e})")
 
     pairs = PAIRS if args.pairs is None else [p for p in PAIRS if p[1] in args.pairs.split(",")]
+    gk_opts = dict(afc_layer_off=args.loff, afc_resolved_off=args.roff, afc_aspect_threshold=args.kappa,
+                   afc_q_relax=args.mu)
+    pm_opts = {"algstab_layer_off": str(args.loff).lower(), "algstab_resolved_off": str(args.roff).lower(),
+               "algstab_aspect_threshold": str(args.kappa), "algstab_q_relax": str(args.mu)}
+    if args.loff or args.roff or args.mu != 1.0:      # only the module has these options
+        pairs = [p for p in pairs if p[1].startswith("algstab:")]
     for gk, pm, extra in pairs:
-        S = CDRSolver(pb, mesh, k=1, stab=gk, afc_solver="auto", afc_maxiter=100000, afc_tol=args.tol) \
-            if "afc_tol" in CDRSolver.__init__.__code__.co_varnames else \
-            CDRSolver(pb, mesh, k=1, stab=gk, afc_solver="auto", afc_maxiter=20000)
+        extra = dict(extra, **(pm_opts if pm.startswith("algstab:") else {}))
+        S = CDRSolver(pb, mesh, k=1, stab=gk, afc_solver="auto", afc_maxiter=100000, afc_tol=args.tol, **gk_opts)
         if gk == "afc_kuzmin" and pm == "algstab:kuzmin_edge":
             # the same tie rule as ParMooN's kuzmin_edge: a_ij, a_ji equal up to the relative
             # tolerance 1e-10 are a tie, which galerkit gives to I (here: the lexicographically

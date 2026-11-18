@@ -1164,7 +1164,13 @@ void ConvectionDiffusion_AFC<d>::do_algebraic_flux_correction(
         if(is_not_afc_fixed_point_rhs == 1)
         {
           algstab = std::make_shared<AlgebraicStabilization::Operator>(one_block,
-                                                                       this->db);
+                                                                       this->db,
+                                                                       bilinear_coeffs);
+          if(!edges_file.empty())                 // with d_ij and the switches
+            algstab->write_edges(edges_file);
+          const std::string test_file = this->db["algstab_test_b"];
+          if(!test_file.empty())
+            algstab->test_b(test_file);
           algstab->add_D(one_block);
           algstab->add_rhs_correction(solEntries, rhsEntries);
           if(iteration == 1)

@@ -3,8 +3,11 @@
 #include "AlgebraicStabilization.h"
 
 #include <algorithm>
+#include <array>
+#include <map>
 #include <cmath>
 #include <fstream>
+#include <sstream>
 #include <limits>
 
 #include "BaseCell.h"
@@ -26,11 +29,25 @@ ParameterDatabase default_database()
          "kuzmin_edge (AFC, Kuzmin limiter, one owner per edge), bbk "
          "(b_ij = d_ij max{xi_i, xi_j}^p), sbbk (b_ij = -C0 |E| max{xi}^p), "
          "smuas (Knobloch 2023)",
-         {"none", "kuzmin_edge", "bbk", "fbbk", "sbbk", "smuas"});
+         {"none", "bjk", "mc", "muas", "kuzmin_edge", "bbk", "fbbk", "sbbk", "smuas"});
+  db.add("algstab_resolved_off", false, "switch the stabilization off on the edges "
+         "with mesh Peclet number |b(x_E)| |E| / (2 eps) <= algstab_pe_threshold");
+  db.add("algstab_pe_threshold", 1.0, "threshold of algstab_resolved_off", 0., 1.e10);
+  db.add("algstab_layer_off", false, "switch the stabilization off on the edges "
+         "along a layer (long edges of cells with aspect ratio >= "
+         "algstab_aspect_threshold)");
+  db.add("algstab_aspect_threshold", 10.0, "aspect ratio diam(K)^2 / (2 |K|) of "
+         "algstab_layer_off (10 on tensor-product, 3 on polar meshes)", 1., 1.e20);
+  db.add("algstab_q_relax", 1.0, "relaxed limiters R_i = min{1, mu Q_i / P_i} "
+         "(bjk, kuzmin_edge, muas, smuas); mu > 1 limits less, DMP not guaranteed",
+         1., 1.e10);
   db.add("algstab_write_nodal", "", "file for x, y, u, free of every dof at the "
          "end (17 digits); empty: none");
   db.add("algstab_write_edges", "", "file for the edges i, j, x_i, y_i, x_j, y_j, "
          "a_ij, a_ji of the Galerkin matrix (first AFC step); empty: none");
+  db.add("algstab_test_b", "", "test: read u (x y u per line, any node order) from "
+         "this file, evaluate b_ij(u) and write it to <file>.b (i j x_i y_i x_j y_j "
+         "b_ij); empty: none");
   db.add("algstab_tie_tol", 1.e-10, "kuzmin_edge: a_ij and a_ji with relative "
          "difference at most this are a tie (owner: the lexicographically "
          "smaller node)", 0., 1.);
@@ -124,7 +141,8 @@ void write_edges(const FEMatrix& A, const std::string& path)
   Output::print<1>("AlgebraicStabilization: edges written to ", path);
 }
 
-Operator::Operator(const FEMatrix& A, const ParameterDatabase& db)
+Operator::Operator(const FEMatrix& A, const ParameterDatabase& db,
+                   const CoeffFct2D& coeffs)
  : method(db["algstab_method"].get<std::string>())
 {
   if(!A.is_square())
@@ -153,6 +171,21 @@ Operator::Operator(const FEMatrix& A, const ParameterDatabase& db)
     }
   setup_geometry(A);
   p_bbk = db["algstab_bbk_p"];
+  q_relax = db["algstab_q_relax"];
+  if(method == "bjk")
+  {
+    // (2.4): a_ji := 0 for i free, j Dirichlet with a_ij < 0 (changes only d)
+    for(size_t e = 0; e < I.size(); ++e)
+    {
+      double am = aij[e], at = aji[e];
+      if(is_free(I[e]) && !is_free(J[e]) && aij[e] < 0.)
+        at = 0.;
+      if(is_free(J[e]) && !is_free(I[e]) && aji[e] < 0.)
+        am = 0.;
+      d[e] = -std::max(std::max(am, at), 0.);
+    }
+  }
+  setup_switches(db, coeffs);
   if(method == "kuzmin_edge")
   {
     // a_ij and a_ji that agree up to round-off (relative difference at most
@@ -181,11 +214,15 @@ Operator::Operator(const FEMatrix& A, const ParameterDatabase& db)
       setup_fbbk(db["algstab_bbk_beta0"]);
   }
   else if(method == "smuas")
-    setup_smuas(A, db["algstab_smuas_weights"].get<std::string>());
-  else if(method != "bbk")
+    setup_smuas(A, db["algstab_smuas_weights"].get<std::string>(), true);
+  else if(method == "muas")
+    setup_smuas(A, "muas", false);
+  else if(method == "bjk")
+    setup_gamma();
+  else if(method != "bbk" && method != "mc")
     ErrThrow("AlgebraicStabilization: unknown method ", method);
-  Output::print<2>("AlgebraicStabilization: ", method, ", ", I.size(), " edges, ",
-                   n_free, " free of ", N, " nodes");
+  Output::print<1>("AlgebraicStabilization: ", method, ", ", I.size(), " edges (",
+                   n_off, " switched off), ", n_free, " free of ", N, " nodes");
 }
 
 void Operator::setup_geometry(const FEMatrix& A)
@@ -208,6 +245,14 @@ void Operator::setup_geometry(const FEMatrix& A)
       Y[dof[k]] = cell->GetVertex(k)->GetY();
       seen[dof[k]] = 1;
     }
+    for(int k = 0; k < 3; ++k)
+      cell_dof.push_back(dof[k]);
+    {
+      const double x0 = cell->GetVertex(0)->GetX(), y0 = cell->GetVertex(0)->GetY();
+      const double x1 = cell->GetVertex(1)->GetX(), y1 = cell->GetVertex(1)->GetY();
+      const double x2 = cell->GetVertex(2)->GetX(), y2 = cell->GetVertex(2)->GetY();
+      cell_area.push_back(0.5*std::abs((x1 - x0)*(y2 - y0) - (x2 - x0)*(y1 - y0)));
+    }
     const int* ev;
     cell->GetShapeDesc()->GetEdgeVertex(ev);
     for(int k = 0; k < 3; ++k)
@@ -225,7 +270,7 @@ void Operator::setup_geometry(const FEMatrix& A)
       ErrThrow("AlgebraicStabilization: dof ", i, " without a vertex");
 }
 
-void Operator::setup_smuas(const FEMatrix& A, const std::string& weights)
+void Operator::setup_smuas(const FEMatrix& A, const std::string& weights, bool reflect)
 {
   // directed edges s -> l (both directions of every edge) with the weights
   const size_t ne = I.size();
@@ -243,7 +288,12 @@ void Operator::setup_smuas(const FEMatrix& A, const std::string& weights)
       double a_sl = dir == 0 ? aij[e] : aji[e];
       double a_ls = dir == 0 ? aji[e] : aij[e];
       bool inP = (a_sl > 0.) || (a_ls > 0.);
-      if(weights == "67")
+      if(weights == "muas")                     // MUAS: p = a_sl^+, q = max{|a_sl|, a_ls}
+      {
+        p_w[k] = a_sl > 0. ? a_sl : 0.;
+        q_w[k] = std::max(std::abs(a_sl), a_ls);
+      }
+      else if(weights == "67")
       {
         p_w[k] = inP ? std::max(std::max(a_sl, 0.), a_ls) : 0.;
         q_w[k] = std::max(std::abs(a_sl), a_ls);
@@ -255,6 +305,8 @@ void Operator::setup_smuas(const FEMatrix& A, const std::string& weights)
       }
     }
   }
+  if(!reflect)
+    return;
   // cells of the mesh (dofs) and the cells of every vertex
   auto space = A.GetFESpace2D();
   const TCollection* coll = space->GetCollection();
@@ -281,6 +333,14 @@ void Operator::setup_smuas(const FEMatrix& A, const std::string& weights)
     const double vx = X[i] - X[l[e]], vy = Y[i] - Y[l[e]];
     const double vn = std::hypot(vx, vy);
     bool found = false;
+    // Neumann nodes (free nodes on the boundary): u_ij = u_i (galerkit muas_nodes)
+    if(on_boundary[i])
+    {
+      W_col.push_back(i);
+      W_val.push_back(1.);
+      W_ptr.push_back((int) W_col.size());
+      continue;
+    }
     for(int c : cells_of[i])
     {
       const int* v = &cell_dof[3*c];
@@ -536,13 +596,283 @@ void Operator::setup_fbbk(double beta0)
 
 std::vector<double> Operator::b_edges(const std::vector<double>& u) const
 {
+  std::vector<double> b;
   if(method == "kuzmin_edge")
-    return b_kuzmin(u);
-  if(method == "bbk")
-    return b_bbk(u);
-  if(method == "sbbk" || method == "fbbk")
-    return b_sbbk(u);
-  return b_smuas(u);
+    b = b_kuzmin(u);
+  else if(method == "bjk")
+    b = b_bjk(u);
+  else if(method == "mc")
+    b = b_mc(u);
+  else if(method == "bbk")
+    b = b_bbk(u);
+  else if(method == "sbbk" || method == "fbbk")
+    b = b_sbbk(u);
+  else
+    b = b_smuas(u);                            // smuas, muas
+  for(size_t e = 0; e < b.size(); ++e)         // switched-off edges: Galerkin
+    if(!active[e])
+      b[e] = 0.;
+  return b;
+}
+
+void Operator::extrema(const std::vector<double>& u, std::vector<double>& umax,
+                       std::vector<double>& umin) const
+{
+  umax = u;
+  umin = u;
+  for(size_t e = 0; e < I.size(); ++e)
+  {
+    umax[I[e]] = std::max(umax[I[e]], u[J[e]]);
+    umax[J[e]] = std::max(umax[J[e]], u[I[e]]);
+    umin[I[e]] = std::min(umin[I[e]], u[J[e]]);
+    umin[J[e]] = std::min(umin[J[e]], u[I[e]]);
+  }
+}
+
+std::vector<double> Operator::b_bjk(const std::vector<double>& u) const
+{
+  const size_t ne = I.size();
+  std::vector<double> Pp(N, 0.), Pm(N, 0.), f(ne), umax, umin;
+  for(size_t e = 0; e < ne; ++e)
+  {
+    f[e] = d[e]*(u[J[e]] - u[I[e]]);
+    Pp[I[e]] += pos(f[e]);   Pm[I[e]] += neg(f[e]);
+    Pp[J[e]] -= neg(f[e]);   Pm[J[e]] -= pos(f[e]);
+  }
+  extrema(u, umax, umin);
+  std::vector<double> Rp(N, 1.), Rm(N, 1.);
+  for(int i = 0; i < n_free; ++i)
+  {
+    const double q = gamma[i]*sum_d[i];
+    Rp[i] = ratio(q_relax*q*(u[i] - umax[i]), Pp[i]);
+    Rm[i] = ratio(q_relax*q*(u[i] - umin[i]), Pm[i]);
+  }
+  std::vector<double> b(ne);
+  for(size_t e = 0; e < ne; ++e)
+  {
+    const double ai = f[e] > 0. ? Rp[I[e]] : (f[e] < 0. ? Rm[I[e]] : 1.);
+    const double aj = -f[e] > 0. ? Rp[J[e]] : (-f[e] < 0. ? Rm[J[e]] : 1.);
+    const bool fi = is_free(I[e]), fj = is_free(J[e]);
+    const double alpha = (fi && fj) ? std::min(ai, aj) : (fi ? ai : (fj ? aj : 1.));
+    b[e] = (1. - alpha)*d[e];
+  }
+  return b;
+}
+
+std::vector<double> Operator::b_mc(const std::vector<double>& u) const
+{
+  const size_t ne = I.size();
+  std::vector<double> umax, umin, b(ne);
+  extrema(u, umax, umin);
+  for(size_t e = 0; e < ne; ++e)
+  {
+    if(d[e] == 0.)
+    {
+      b[e] = 0.;
+      continue;
+    }
+    const int i = I[e], j = J[e];
+    const double ub_ij = 0.5*(u[i] + u[j]) + aij[e]*(u[j] - u[i])/(2.*d[e]);
+    const double ub_ji = 0.5*(u[i] + u[j]) + aji[e]*(u[i] - u[j])/(2.*d[e]);
+    const double f = d[e]*(u[j] - u[i]);
+    double alpha = 0.;
+    if(f > 0.)
+      alpha = std::min(1., std::min(2.*d[e]*(ub_ij - umax[i])/f, 2.*d[e]*(umin[j] - ub_ji)/f));
+    else if(f < 0.)
+      alpha = std::min(1., std::min(2.*d[e]*(ub_ij - umin[i])/f, 2.*d[e]*(umax[j] - ub_ji)/f));
+    alpha = std::min(1., std::max(0., alpha));
+    b[e] = (1. - alpha)*d[e];
+  }
+  return b;
+}
+
+namespace
+{
+// 2D convex hull (monotone chain), counterclockwise, without collinear points
+std::vector<std::array<double, 2>> convex_hull(std::vector<std::array<double, 2>> p)
+{
+  std::sort(p.begin(), p.end());
+  p.erase(std::unique(p.begin(), p.end()), p.end());
+  if(p.size() < 3)
+    return p;
+  auto cross = [](const std::array<double, 2>& o, const std::array<double, 2>& a,
+                  const std::array<double, 2>& b)
+  { return (a[0] - o[0])*(b[1] - o[1]) - (a[1] - o[1])*(b[0] - o[0]); };
+  std::vector<std::array<double, 2>> h(2*p.size());
+  size_t k = 0;
+  for(size_t i = 0; i < p.size(); ++i)
+  {
+    while(k >= 2 && cross(h[k-2], h[k-1], p[i]) <= 0.) --k;
+    h[k++] = p[i];
+  }
+  for(size_t i = p.size() - 1, t = k + 1; i > 0; --i)
+  {
+    while(k >= t && cross(h[k-2], h[k-1], p[i-1]) <= 0.) --k;
+    h[k++] = p[i-1];
+  }
+  h.resize(k - 1);
+  return h;
+}
+}
+
+void Operator::setup_gamma()
+{
+  // gamma_i = max_j |x_i - x_j| / dist(x_i, boundary of conv{x_j : j in S_i}) (BJK17 (6.5));
+  // at Neumann nodes x_i lies on the hull: distance to the facets not through x_i
+  std::vector<std::vector<int>> nb(N);
+  for(size_t e = 0; e < I.size(); ++e)
+  {
+    nb[I[e]].push_back(J[e]);
+    nb[J[e]].push_back(I[e]);
+  }
+  gamma.assign(N, 1.);
+  sum_d.assign(N, 0.);
+  for(size_t e = 0; e < I.size(); ++e)
+  {
+    sum_d[I[e]] += d[e];
+    sum_d[J[e]] += d[e];
+  }
+  for(int i = 0; i < n_free; ++i)
+  {
+    std::vector<std::array<double, 2>> rel;
+    double scale = 0.;
+    for(int j : nb[i])
+    {
+      rel.push_back({X[j] - X[i], Y[j] - Y[i]});
+      scale = std::max(scale, std::hypot(rel.back()[0], rel.back()[1]));
+    }
+    const bool neumann = on_boundary[i];
+    if(neumann)
+      rel.push_back({0., 0.});
+    const auto h = convex_hull(rel);
+    double dist = 1e300;
+    for(size_t k = 0; k < h.size(); ++k)
+    {
+      const auto& p = h[k];
+      const auto& q = h[(k + 1) % h.size()];
+      const double len = std::hypot(q[0] - p[0], q[1] - p[1]);
+      // distance of the origin (x_i) to the line through p, q (inside: >= 0)
+      const double dl = std::abs(p[0]*q[1] - p[1]*q[0])/len;
+      if(neumann && dl <= 1e-12*scale)
+        continue;                              // facet through x_i
+      dist = std::min(dist, dl);
+    }
+    if(!(dist > 1e-14*scale) || dist == 1e300)
+      ErrThrow("AlgebraicStabilization: vertex ", i, " lies on the boundary of the "
+               "convex hull of its patch");
+    gamma[i] = scale/dist;
+  }
+}
+
+void Operator::setup_switches(const ParameterDatabase& db, const CoeffFct2D& coeffs)
+{
+  const size_t ne = I.size();
+  active.assign(ne, 1);
+  if((bool) db["algstab_resolved_off"])
+  {
+    if(!coeffs)
+      ErrThrow("AlgebraicStabilization: algstab_resolved_off needs the coefficients");
+    const double thr = db["algstab_pe_threshold"];
+    std::vector<double> cbuf(20, 0.);
+    double* cp = cbuf.data();
+    for(size_t e = 0; e < ne; ++e)
+    {
+      double xm = 0.5*(X[I[e]] + X[J[e]]), ym = 0.5*(Y[I[e]] + Y[J[e]]);
+      coeffs(1, &xm, &ym, nullptr, &cp);
+      const double pe = std::hypot(cbuf[1], cbuf[2])
+                        *std::hypot(X[J[e]] - X[I[e]], Y[J[e]] - Y[I[e]])/(2.*cbuf[0]);
+      if(!(pe > thr))
+        active[e] = 0;
+    }
+  }
+  if((bool) db["algstab_layer_off"])
+  {
+    // the edge is along a layer if on every cell K at the edge
+    // diam(K)^2/(2|K|) >= kappa and |E| >= diam(K)/2
+    const double kappa = db["algstab_aspect_threshold"];
+    std::map<std::pair<int, int>, int> bad;   // cells at the edge where it is not "along"
+    std::map<std::pair<int, int>, int> cnt;
+    const size_t nc = cell_area.size();
+    for(size_t c = 0; c < nc; ++c)
+    {
+      const int* v = &cell_dof[3*c];
+      double L[3], diam = 0.;
+      for(int k = 0; k < 3; ++k)
+      {
+        const int a = v[k], b2 = v[(k + 1) % 3];
+        L[k] = std::hypot(X[b2] - X[a], Y[b2] - Y[a]);
+        diam = std::max(diam, L[k]);
+      }
+      const double aspect = diam*diam/(2.*cell_area[c]);
+      for(int k = 0; k < 3; ++k)
+      {
+        const int a = v[k], b2 = v[(k + 1) % 3];
+        const auto key = std::make_pair(std::min(a, b2), std::max(a, b2));
+        cnt[key]++;
+        if(!(aspect >= kappa && L[k] >= 0.5*diam))
+          bad[key]++;
+      }
+    }
+    for(size_t e = 0; e < ne; ++e)
+    {
+      const auto key = std::make_pair(I[e], J[e]);
+      if(cnt.count(key) && !bad.count(key))
+        active[e] = 0;
+    }
+  }
+  n_off = 0;
+  for(size_t e = 0; e < ne; ++e)
+    if(!active[e])
+    {
+      d[e] = 0.;
+      ++n_off;
+    }
+}
+
+void Operator::test_b(const std::string& path) const
+{
+  // u at the dofs, matched by coordinates (nearest node)
+  std::ifstream in(path);
+  std::vector<std::array<double, 3>> pts;
+  std::string line;
+  while(std::getline(in, line))
+  {
+    if(line.empty() || line[0] == '#')
+      continue;
+    std::istringstream is(line);
+    std::array<double, 3> p;
+    if(is >> p[0] >> p[1] >> p[2])
+      pts.push_back(p);
+  }
+  std::vector<double> u(N, 0.);
+  for(int i = 0; i < N; ++i)
+  {
+    double best = 1e300;
+    for(const auto& p : pts)
+    {
+      const double dd = std::hypot(p[0] - X[i], p[1] - Y[i]);
+      if(dd < best) { best = dd; u[i] = p[2]; }
+    }
+  }
+  const std::vector<double> b = b_edges(u);
+  std::ofstream f(path + ".b");
+  f << "# i j x_i y_i x_j y_j b_ij\n";
+  f.precision(17);
+  for(size_t e = 0; e < I.size(); ++e)
+    f << I[e] << " " << J[e] << " " << X[I[e]] << " " << Y[I[e]] << " " << X[J[e]]
+      << " " << Y[J[e]] << " " << b[e] << "\n";
+  Output::print<1>("AlgebraicStabilization: b_ij(u) written to ", path, ".b");
+}
+
+void Operator::write_edges(const std::string& path) const
+{
+  std::ofstream f(path);
+  f << "# i j x_i y_i x_j y_j a_ij a_ji d_ij active\n";
+  f.precision(17);
+  for(size_t e = 0; e < I.size(); ++e)
+    f << I[e] << " " << J[e] << " " << X[I[e]] << " " << Y[I[e]] << " " << X[J[e]]
+      << " " << Y[J[e]] << " " << aij[e] << " " << aji[e] << " " << d[e] << " "
+      << (int) active[e] << "\n";
 }
 
 std::vector<double> Operator::b_kuzmin(const std::vector<double>& u) const
@@ -569,8 +899,8 @@ std::vector<double> Operator::b_kuzmin(const std::vector<double>& u) const
   std::vector<double> Rp(N, 1.), Rm(N, 1.);
   for(int i = 0; i < n_free; ++i)
   {
-    Rp[i] = ratio(Qp[i], Pp[i]);
-    Rm[i] = ratio(Qm[i], Pm[i]);
+    Rp[i] = ratio(q_relax*Qp[i], Pp[i]);
+    Rm[i] = ratio(q_relax*Qm[i], Pm[i]);
   }
   std::vector<double> b(ne);
   for(size_t e = 0; e < ne; ++e)
@@ -630,10 +960,14 @@ std::vector<double> Operator::b_smuas(const std::vector<double>& u) const
   for(size_t k = 0; k < nd; ++k)
   {
     ds[k] = u[s[k]] - u[l[k]];                 // u_i - u_j
-    double wu = 0.;                            // reflected value u_ij
-    for(int m = W_ptr[k]; m < W_ptr[k+1]; ++m)
-      wu += W_val[m]*u[W_col[m]];
-    const double r = wu - u[s[k]];             // u_ij - u_i
+    double r = 0.;                             // u_ij - u_i (smuas only)
+    if(!W_ptr.empty())
+    {
+      double wu = 0.;                          // reflected value u_ij
+      for(int m = W_ptr[k]; m < W_ptr[k+1]; ++m)
+        wu += W_val[m]*u[W_col[m]];
+      r = wu - u[s[k]];
+    }
     const int i = s[k];
     Pp[i] += p_w[k]*(pos(ds[k]) + pos(-r));
     Pm[i] += p_w[k]*(neg(ds[k]) + neg(-r));
@@ -643,8 +977,8 @@ std::vector<double> Operator::b_smuas(const std::vector<double>& u) const
   std::vector<double> Rp(N, 1.), Rm(N, 1.);
   for(int i = 0; i < n_free; ++i)
   {
-    Rp[i] = ratio(Qp[i], Pp[i]);
-    Rm[i] = ratio(Qm[i], Pm[i]);
+    Rp[i] = ratio(q_relax*Qp[i], Pp[i]);
+    Rm[i] = ratio(q_relax*Qm[i], Pm[i]);
   }
   std::vector<double> beta(nd);
   for(size_t k = 0; k < nd; ++k)
