@@ -25,8 +25,10 @@ low-order solution (afc_initial_iterate afc_zero), or (--solver) Anderson
 acceleration of depth 10 without (fp_anderson) or with the non-monotone safeguard
 (fp_anderson_safe, folder suffix _aas) as in the paper; at most --maxit (3000)
 iterations, Euclidean residual --tol (1e-10; ParMooN's afc_nonlinloop_epsilon
-is set to tol / sqrt(N), because ParMooN multiplies it by sqrt(N)). Newton's
-method for regularized limiters of the paper is not available.
+is set to tol / sqrt(N), because ParMooN multiplies it by sqrt(N)), or Newton's
+method (newton; newton_cont: regularized limiters with continuation sigma = 0.1,
+..., 1e-6, at most 40 iterations per stage, then Newton on sigma = 0; folder
+suffix _nc; not for MC), with a coloured finite-difference Jacobian.
 
 Every run is a folder <prefix>_<study>_<mesh>_n<n>_<method>[_<variant>] in the
 folder <prefix> = cd_<example name> (scripts/naming.py), with the ParMooN input,
@@ -104,6 +106,8 @@ algstab_resolved_off: {roff}
 algstab_aspect_threshold: {kappa}
 algstab_q_relax: {mu}
 algstab_solver: {solver}
+algstab_reg: {reg}
+algstab_newton_maxit: {nc_maxit}
 algstab_write_nodal: {prefix}_nodal.txt
 algstab_write_edges: {prefix}_edges.txt
 """
@@ -129,7 +133,8 @@ def make_mesh(ex, eps, kind, n):
     return M.layer_mesh(n, kind, eb_x, eb_y, side_y=side_y)
 
 
-SOLVER_SUFFIX = {"fixed_point": "", "fp_anderson": "_aa", "fp_anderson_safe": "_aas"}
+SOLVER_SUFFIX = {"fixed_point": "", "fp_anderson": "_aa", "fp_anderson_safe": "_aas", "newton": "_nw",
+                 "newton_cont": "_nc"}
 
 
 def run_name(study, mesh, n, method, variant, solver="fixed_point"):
@@ -157,7 +162,7 @@ def run_job(job):
                      tol=tol / np.sqrt(len(P)),
                      algstab="none" if method in LINEAR else method,
                      loff=str(variant == "loff").lower(), roff=str(variant == "roff").lower(), kappa=kappa,
-                     mu=2.0 if variant == "mu2" else 1.0, solver=solver)
+                     mu=2.0 if variant == "mu2" else 1.0, solver=solver, reg=1e-6, nc_maxit=40)
     if method == "supg":                              # coth formula with the cell size in the
         txt += "SDFEM_TYPE: 2\nCELL_MEASURE: 4\n"       # direction of b (= galerkit's SUPG)
     dat = os.path.join(rdir, f"{pre}_{run_name(study, mesh, n, method, variant, solver)}.dat")
@@ -380,7 +385,9 @@ def main():
     ap.add_argument("--variants", nargs="+", default=["plain"])
     ap.add_argument("--maxit", type=int, default=3000)
     ap.add_argument("--solver", default="fixed_point", choices=list(SOLVER_SUFFIX),
-                    help="fixed_point (ParMooN's loop with damping), fp_anderson, fp_anderson_safe")
+                    help="fixed_point (ParMooN's loop with damping), fp_anderson, fp_anderson_safe, newton, "
+                         "newton_cont (regularized limiters, sigma = 0.1 ... 1e-6, 40 iterations per stage, "
+                         "then sigma = 0; not for MC)")
     ap.add_argument("--tol", type=float, default=1e-10)
     ap.add_argument("--jobs", type=int, default=1)
     ap.add_argument("--report-only", action="store_true")
@@ -393,7 +400,8 @@ def main():
                  args.solver)
                 for ex, eps in cases for m in args.meshes for n in args.n for meth in args.methods
                 for var in args.variants
-                if not (meth in LINEAR and var != "plain")]
+                if not (meth in LINEAR and var != "plain")
+                and not (meth == "mc" and args.solver == "newton_cont")]    # MC: no regularization
         print(f"{len(jobs)} runs")
         t0 = time.perf_counter()
         if args.jobs > 1:

@@ -124,8 +124,24 @@ class Operator
     /// i, j, x_i, y_i, x_j, y_j, a_ij, a_ji, d_ij, active of every edge
     void write_edges(const std::string& path) const;
 
-    /// test: read u from path (x y u), write b_ij(u) to path.b
-    void test_b(const std::string& path) const;
+    /// test: read u from path (x y u), write b_ij(u) to path.b (with sigma =
+    /// algstab_reg if > 0)
+    void test_b(const std::string& path);
+
+    /// regularized (C^1) limiters with parameter sigma > 0 (galerkit
+    /// _b_edges_reg; sigma relative to the solution scale 1); 0: the limiters.
+    /// Not for mc.
+    void set_reg(double sigma);
+    double get_reg() const { return reg; }
+    /// the target sigma of algstab_reg (newton_cont, test_b)
+    double reg_target() const { return reg_param; }
+
+    /// the undirected edges (I < J)
+    const std::vector<int>& edge_I() const { return I; }
+    const std::vector<int>& edge_J() const { return J; }
+    int n_free_dofs() const { return n_free; }
+    /// d_e (after the switches)
+    double d_edge(size_t e) const { return d[e]; }
 
     /// number of edges where the stabilization is switched off
     size_t n_switched_off() const { return n_off; }
@@ -172,6 +188,11 @@ class Operator
     std::vector<double> cell_area;
     // bjk: gamma_i and sum_j d_ij
     std::vector<double> gamma, sum_d;
+    // regularization
+    double reg = 0., reg_param = 0.;
+    std::vector<double> b_reg(const std::vector<double>& u) const;
+    void rextrema(const std::vector<double>& u, const std::vector<double>& sn,
+                  std::vector<double>& umax, std::vector<double>& umin) const;
     std::vector<double> b_bjk(const std::vector<double>& u) const;
     std::vector<double> b_mc(const std::vector<double>& u) const;
     void extrema(const std::vector<double>& u, std::vector<double>& umax,

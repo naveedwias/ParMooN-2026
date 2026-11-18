@@ -97,6 +97,21 @@ class ConvectionDiffusion_AFC : public ConvectionDiffusion<d>
      * iterations; the solution is the best iterate. Call after assemble(0) and
      * solve(0) with afc_initial_iterate afc_zero. */
     void solve_algstab_anderson();
+
+    /** @brief Newton's method for the separate algebraic stabilizations, as
+     * galerkit solve_afc "newton" / "newton_cont": Jacobian of the residual
+     * g - (A + B(u)) u by coloured finite differences (rows depend on the
+     * nodes within graph distance 2), solved with UMFPACK; backtracking from
+     * lambda = 1 (|r(u + lambda dx)| <= (1 - 1e-4 lambda) |r(u)|, lambda >=
+     * 1e-4), otherwise a damped Picard step with A + B(u) (omega halved down to
+     * 1e-4 while the residual does not decrease, then omega * 1.25). The best
+     * iterate is returned. algstab_solver newton: limiters as they are, at most
+     * afc_nonlinloop_maxit iterations; newton_cont: regularized limiters with
+     * sigma = 0.1, 0.01, ..., algstab_reg (algstab_newton_maxit iterations per
+     * stage, each stage from the previous solution, stop at the first stage
+     * that does not converge), then Newton on sigma = 0 (at most 20
+     * iterations) from the last regularized solution ("polish"). */
+    void solve_algstab_newton();
     
     /** 
      * @brief measure AFC errors

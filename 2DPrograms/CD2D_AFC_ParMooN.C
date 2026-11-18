@@ -72,7 +72,11 @@ int main(int argc, char* argv[])
   {
     // Anderson acceleration (with safeguard) of the separate algebraic
     // stabilizations: the whole iteration in one call
-    cd2d.solve_algstab_anderson();
+    if(cd2d.get_db()["algstab_solver"].is("newton")
+       || cd2d.get_db()["algstab_solver"].is("newton_cont"))
+      cd2d.solve_algstab_newton();
+    else
+      cd2d.solve_algstab_anderson();
   }
   else if( cd2d.get_db()["algebraic_flux_correction"].is("afc") )
   {

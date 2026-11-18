@@ -58,9 +58,23 @@ the criterion |r|_2 <= tol of the paper use tol / sqrt(N) (`run_study.py` does).
   to galerkit's results.json (Example 1); Laplace > 0 counts and mesh data equal to the mesh
   table of the paper.
 
+## Nonlinear solvers (`algstab_solver`)
+
+- `fixed_point`: ParMooN's fixed point rhs loop with its dynamic damping.
+- `fp_anderson`, `fp_anderson_safe`: Anderson acceleration of depth 10, with the non-monotone
+  safeguard of the paper (galerkit `_fp_anderson`). Against galerkit: the same convergence,
+  iterations within a few percent, the same numbers of safeguard rejections.
+- `newton`, `newton_cont`: Newton's method with a coloured finite-difference Jacobian
+  (`algstab_fd_step` 1e-10; galerkit uses exact Jacobians), backtracking and a damped Picard
+  fallback; `newton_cont`: regularized limiters (`algstab_reg` = 1e-6, sigma = 0.1, ..., 1e-6,
+  `algstab_newton_maxit` = 40 per stage), then Newton on sigma = 0. The regularized b_ij(u)
+  of all seven methods equal galerkit's to round-off; the continuation stages equal galerkit's
+  (polish at sigma = 0: a few iterations more). MC has no regularization.
+  The smoothed max/min of the regularization are not symmetric, so the regularized scheme
+  depends on the orientation of the edges at O(sigma); the module orients every edge from the
+  lexicographically smaller node (as galerkit's numbering of its tensor-product meshes).
+
 ## Not yet implemented
 
-The safeguarded Anderson acceleration and Newton's method for regularized limiters with
-continuation (used in the paper for Examples 4 and 5 and in the solver tables); the tables
-for the switches, the other layer-adapted meshes and Examples 4, 5 in the format of the paper
-(the runs and records support them).
+The tables for the switches, the other layer-adapted meshes, the solvers and Examples 4, 5
+in the format of the paper (the runs and records support them).

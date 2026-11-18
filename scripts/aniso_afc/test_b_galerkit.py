@@ -37,6 +37,7 @@ def main():
     ap.add_argument("--roff", action="store_true")
     ap.add_argument("--kappa", type=float, default=10.0)
     ap.add_argument("--mu", type=float, default=1.0)
+    ap.add_argument("--reg", type=float, default=0.0, help="regularized limiters with sigma (both codes)")
     ap.add_argument("--workdir", default="test_b")
     args = ap.parse_args()
 
@@ -72,23 +73,24 @@ def main():
     run_parmoon.tol = 1e-12
     rng = np.random.default_rng(1)
     opts = dict(afc_layer_off=args.loff, afc_resolved_off=args.roff, afc_aspect_threshold=args.kappa,
-                afc_q_relax=args.mu)
+                afc_q_relax=args.mu, afc_reg=args.reg)
     print(f"{args.problem}, eps {args.eps:g}, {args.mesh}, n = {args.n}, loff {args.loff}, roff {args.roff}, "
-          f"mu {args.mu}: max |b_ParMooN - b_galerkit| / max |b|")
+          f"mu {args.mu}, sigma {args.reg:g}: max |b_ParMooN - b_galerkit| / max |b|")
     for meth in args.methods.split(","):
         S = CDRSolver(pb, mesh, k=1, stab=GK[meth], **opts)
         op = S.afc_operator(0.0)
         if meth == "kuzmin_edge":                   # the same tie rule (see crosscheck_galerkit.py)
             sc = np.maximum(np.abs(op.aij), np.abs(op.aji))
             op.aji = np.where(np.abs(op.aij - op.aji) <= 1e-10 * sc, op.aij, op.aji)
-        ug, _ = S.solve()
+        ug, _ = CDRSolver(pb, mesh, k=1, stab=GK[meth], **dict(opts, afc_reg=0.0)).solve()
         res = []
         for label, u in (("random", rng.standard_normal(len(P))), ("solution", np.asarray(ug))):
             ufile = os.path.abspath(os.path.join(args.workdir, f"u_{meth}_{label}.txt"))
             np.savetxt(ufile, np.column_stack([P, u]), fmt="%.17g")
             extra = {"algstab_test_b": ufile, "afc_nonlinloop_maxit": "1",
                      "algstab_layer_off": str(args.loff).lower(), "algstab_resolved_off": str(args.roff).lower(),
-                     "algstab_aspect_threshold": str(args.kappa), "algstab_q_relax": str(args.mu)}
+                     "algstab_aspect_threshold": str(args.kappa), "algstab_q_relax": str(args.mu),
+                     "algstab_reg": str(args.reg)}
             run_parmoon(os.path.abspath(args.exe), args.workdir, f"t_{meth}_{label}", geo,
                         PARMOON_EXAMPLE[args.problem], args.eps, afc="afc", limiter="algstab:" + meth, extra=extra)
             bfile = ufile + ".b"

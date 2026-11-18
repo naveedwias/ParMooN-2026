@@ -1,5 +1,8 @@
 #include "ConvectionDiffusion_AFC.h"
 #include "AlgebraicStabilization.h"
+#include <umfpack.h>
+#include <algorithm>
+#include <cmath>
 #include <limits>
 #include <list>
 #include "Database.h"
@@ -858,6 +861,343 @@ void ConvectionDiffusion_AFC<d>::solve_algstab_anderson()
   Output::print<1>(best_res <= tol ? "" : "MAX_", "NONLINEAR ITERATION: ite ", it,
                    " res ", best_res, " rejections ", safe_rej, " time ", t_total,
                    " restarts ", restarts, " (", this->db["algstab_solver"], ")");
+}
+
+namespace
+{
+// solve the n x n system with the CSR matrix (rp, ci, v) by UMFPACK
+bool umfpack_solve_csr(int n, const std::vector<int>& rp, const std::vector<int>& ci,
+                       const std::vector<double>& v, const std::vector<double>& b,
+                       std::vector<double>& x)
+{
+  void *Symbolic = nullptr, *Numeric = nullptr;
+  x.assign(n, 0.);
+  // the CSR arrays are the CSC arrays of the transpose: solve with UMFPACK_At
+  int st = umfpack_di_symbolic(n, n, rp.data(), ci.data(), v.data(), &Symbolic,
+                               nullptr, nullptr);
+  if(st != UMFPACK_OK)
+    return false;
+  st = umfpack_di_numeric(rp.data(), ci.data(), v.data(), Symbolic, &Numeric,
+                          nullptr, nullptr);
+  umfpack_di_free_symbolic(&Symbolic);
+  if(st != UMFPACK_OK)                           // also UMFPACK_WARNING_singular_matrix
+  {
+    if(Numeric)
+      umfpack_di_free_numeric(&Numeric);
+    return false;
+  }
+  st = umfpack_di_solve(UMFPACK_At, rp.data(), ci.data(), v.data(), x.data(),
+                        b.data(), Numeric, nullptr, nullptr);
+  umfpack_di_free_numeric(&Numeric);
+  if(st != UMFPACK_OK)
+    return false;
+  for(double xi : x)
+    if(!std::isfinite(xi))
+      return false;
+  return true;
+}
+}
+
+template<int d>
+void ConvectionDiffusion_AFC<d>::solve_algstab_newton()
+{
+  if(!algstab)
+    ErrThrow("solve_algstab_newton: no algebraic stabilization (call after "
+             "assemble(0) and solve(0) with algstab_method and afc_initial_iterate "
+             "afc_zero)");
+  const double t0 = GetTime();
+  auto& s = this->systems.front();
+  const bool cont = this->db["algstab_solver"].is("newton_cont");
+  const double fd_step = this->db["algstab_fd_step"];
+  const int N = s.solution.length();
+  const int n_free = s.fe_space->get_n_active();
+  const double tol = this->db["afc_nonlinloop_epsilon"];  // * sqrt(N), from solve(0)
+  if((int) algstab_g.size() != N)
+    ErrThrow("solve_algstab_newton: the right-hand side g was not stored");
+  std::vector<double> g(algstab_g);
+  for(int i = n_free; i < N; ++i)
+    g[i] = s.solution[i];
+  const FEMatrix& AD = *s.matrix.get_blocks().at(0);       // A + D
+  const int* rowp = AD.get_row_ptr();
+  const int* cols = AD.get_vector_columns();
+  const double* ent = AD.GetEntries();
+  const TStructure& st = AD.GetStructure();
+  const auto& EI = algstab->edge_I();
+  const auto& EJ = algstab->edge_J();
+  const size_t ne = EI.size();
+
+  // residual g - (A + B(v)) v = g + (D - B(v)) v - (A + D) v on the free rows
+  auto residual = [&](const std::vector<double>& v, std::vector<double>& r)
+  {
+    std::vector<double> c(g);
+    algstab->add_rhs_correction(v, c);
+    r.assign(n_free, 0.);
+    for(int i = 0; i < n_free; ++i)
+    {
+      double av = 0.;
+      for(int k = rowp[i]; k < rowp[i+1]; ++k)
+        av += ent[k]*v[cols[k]];
+      r[i] = c[i] - av;
+    }
+  };
+  auto norm = [](const std::vector<double>& r)
+  {
+    double q = 0.;
+    for(double x : r) q += x*x;
+    return std::sqrt(q);
+  };
+
+  // pattern of the Jacobian (free x free): nodes within graph distance 2, and a
+  // greedy colouring of the columns (no two columns of one colour in a row)
+  std::vector<std::vector<int>> nb(N);
+  for(size_t e = 0; e < ne; ++e)
+  {
+    nb[EI[e]].push_back(EJ[e]);
+    nb[EJ[e]].push_back(EI[e]);
+  }
+  std::vector<int> prow(n_free + 1, 0), pcol;
+  {
+    std::vector<int> mark(N, -1);
+    for(int i = 0; i < n_free; ++i)
+    {
+      std::vector<int> row;
+      auto add = [&](int k) { if(k < n_free && mark[k] != i) { mark[k] = i; row.push_back(k); } };
+      add(i);
+      for(int j : nb[i])
+      {
+        add(j);
+        for(int k : nb[j])
+          add(k);
+      }
+      std::sort(row.begin(), row.end());
+      pcol.insert(pcol.end(), row.begin(), row.end());
+      prow[i+1] = (int) pcol.size();
+    }
+  }
+  std::vector<int> color(n_free, -1);
+  int n_colors = 0;
+  {
+    std::vector<int> stamp(n_free + 1, -1);
+    for(int c = 0; c < n_free; ++c)
+    {
+      for(int a = prow[c]; a < prow[c+1]; ++a)       // rows containing column c
+      {
+        const int i = pcol[a];                       // (the pattern is symmetric)
+        for(int b = prow[i]; b < prow[i+1]; ++b)
+        {
+          const int k = pcol[b];
+          if(color[k] >= 0)
+            stamp[color[k]] = c;
+        }
+      }
+      int col = 0;
+      while(stamp[col] == c) ++col;
+      color[c] = col;
+      n_colors = std::max(n_colors, col + 1);
+    }
+  }
+  std::vector<std::vector<int>> by_color(n_colors);
+  for(int c = 0; c < n_free; ++c)
+    by_color[color[c]].push_back(c);
+
+  // finite-difference Jacobian at u (r0 = residual(u)); values in CSR (prow, pcol)
+  auto jacobian = [&](const std::vector<double>& u, const std::vector<double>& r0,
+                      std::vector<double>& jv)
+  {
+    double umax = 0.;
+    for(double x : u) umax = std::max(umax, std::abs(x));
+    const double h = fd_step*std::max(1., umax);
+    jv.assign(pcol.size(), 0.);
+    std::vector<double> v(u), r;
+    for(int c = 0; c < n_colors; ++c)
+    {
+      for(int k : by_color[c]) v[k] = u[k] + h;
+      residual(v, r);
+      for(int k : by_color[c]) v[k] = u[k];
+      for(int k : by_color[c])
+        for(int a = prow[k]; a < prow[k+1]; ++a)     // rows i depending on column k
+        {
+          const int i = pcol[a];
+          // entry (i, k): position of k in row i
+          const int* p = std::lower_bound(&pcol[prow[i]], &pcol[prow[i+1]], k);
+          jv[p - &pcol[0]] = (r[i] - r0[i])/h;
+        }
+    }
+  };
+
+  // Picard step: (A + B(u)) ut = g on the free rows
+  auto picard = [&](const std::vector<double>& u, std::vector<double>& ut)
+  {
+    const std::vector<double> bb = algstab->b_edges(u);
+    std::vector<int> rp(n_free + 1, 0), ci;
+    std::vector<double> vv, rhs(n_free);
+    std::vector<double> adj(AD.get_n_entries(), 0.);  // (b - d) added to A + D
+    for(size_t e = 0; e < ne; ++e)
+    {
+      const double w = bb[e] - algstab->d_edge(e);
+      const int i = EI[e], j = EJ[e];
+      adj[st.get_index_of_entry(i, j)] += w;
+      adj[st.get_index_of_entry(j, i)] += w;
+      adj[st.get_index_of_entry(i, i)] -= w;
+      adj[st.get_index_of_entry(j, j)] -= w;
+    }
+    for(int i = 0; i < n_free; ++i)
+    {
+      rhs[i] = g[i];
+      for(int k = rowp[i]; k < rowp[i+1]; ++k)
+      {
+        const double val = ent[k] + adj[k];
+        if(cols[k] < n_free)
+        {
+          ci.push_back(cols[k]);
+          vv.push_back(val);
+        }
+        else
+          rhs[i] -= val*u[cols[k]];
+      }
+      rp[i+1] = (int) ci.size();
+    }
+    std::vector<double> x;
+    if(!umfpack_solve_csr(n_free, rp, ci, vv, rhs, x))
+      return false;
+    ut = u;
+    for(int i = 0; i < n_free; ++i) ut[i] = x[i];
+    return true;
+  };
+
+  struct Info { int it = 0, rejections = 0; double res = 0.; bool converged = false; };
+  // Newton (galerkit solve_afc "newton") from u; returns the best iterate in u
+  auto newton = [&](std::vector<double>& u, int maxit)
+  {
+    Info info;
+    std::vector<double> r, rn, jv, dx, un, best(u);
+    residual(u, r);
+    double res = norm(r), best_res = res, omega = 1.;
+    while(res > tol && info.it < maxit)
+    {
+      ++info.it;
+      jacobian(u, r, jv);
+      std::vector<double> mr(n_free);
+      for(int i = 0; i < n_free; ++i) mr[i] = -r[i];
+      bool accepted = false;
+      if(umfpack_solve_csr(n_free, prow, pcol, jv, mr, dx))
+      {
+        double lam = 1.;
+        while(lam >= 1e-4)
+        {
+          un = u;
+          for(int i = 0; i < n_free; ++i) un[i] += lam*dx[i];
+          residual(un, rn);
+          if(norm(rn) <= (1. - 1e-4*lam)*res)
+          {
+            accepted = true;
+            break;
+          }
+          lam *= 0.5;
+        }
+      }
+      if(!accepted)                                   // damped Picard step
+      {
+        std::vector<double> ut;
+        if(!picard(u, ut))
+          break;
+        while(true)
+        {
+          for(int i = 0; i < n_free; ++i) un[i] = u[i] + omega*(ut[i] - u[i]);
+          residual(un, rn);
+          if(norm(rn) < res || omega <= 1e-4)
+            break;
+          omega *= 0.5;
+          ++info.rejections;
+        }
+        omega = std::min(1., omega*1.25);
+      }
+      u = un;
+      r = rn;
+      res = norm(r);
+      if(res < best_res)
+      {
+        best_res = res;
+        best = u;
+      }
+    }
+    u = best;
+    info.res = best_res;
+    info.converged = best_res <= tol;
+    return info;
+  };
+
+  // start: the low-order solution (A + D) u = g
+  BlockVector rhs_bv(s.rhs), sol_bv(s.solution);
+  for(int i = 0; i < N; ++i) rhs_bv[i] = g[i];
+  this->ConvectionDiffusion<d>::solver.update_matrix(s.matrix);
+  this->ConvectionDiffusion<d>::solver.solve(rhs_bv, sol_bv);
+  std::vector<double> u(sol_bv.get_entries(), sol_bv.get_entries() + N);
+  for(int i = n_free; i < N; ++i) u[i] = g[i];
+
+  int it_total = 0, rej_total = 0;
+  double res_final = 0., reg_final = -1.;
+  bool converged = false, polished = false;
+  std::string stages;
+  if(!cont)
+  {
+    algstab->set_reg(0.);
+    const Info inf = newton(u, (int)(size_t) this->db["afc_nonlinloop_maxit"]);
+    it_total = inf.it; rej_total = inf.rejections; res_final = inf.res;
+    converged = inf.converged;
+    reg_final = 0.;
+  }
+  else
+  {
+    const double target = algstab->reg_target();
+    if(!(target > 0.))
+      ErrThrow("newton_cont needs algstab_reg > 0");
+    const int maxit = this->db["algstab_newton_maxit"];
+    const int kmax = (int) std::ceil(std::log10(std::max(1., 0.1/target)) - 1e-9);
+    std::vector<double> u_ok;
+    double res_ok = 0.;
+    for(int k = kmax; k >= 0; --k)
+    {
+      const double r = target*std::pow(10., k);
+      algstab->set_reg(r);
+      std::vector<double> un(u);
+      const Info inf = newton(un, maxit);
+      it_total += inf.it; rej_total += inf.rejections;
+      stages += " " + std::to_string(r).substr(0, 8) + ":" + std::to_string(inf.it)
+                + (inf.converged ? "" : "*");
+      if(!inf.converged)
+      {
+        if(u_ok.empty()) { u = un; res_final = inf.res; }
+        break;
+      }
+      u = un; u_ok = un; res_ok = inf.res; reg_final = r;
+    }
+    algstab->set_reg(0.);
+    if(!u_ok.empty())
+    {
+      std::vector<double> up(u_ok);
+      const Info inf = newton(up, std::min(maxit, 20));
+      it_total += inf.it; rej_total += inf.rejections;
+      stages += " 0:" + std::to_string(inf.it) + (inf.converged ? "" : "*");
+      if(inf.converged)
+      {
+        u = up; res_final = inf.res; reg_final = 0.; polished = true;
+      }
+      else
+      {
+        u = u_ok; res_final = res_ok;
+      }
+    }
+    converged = !u_ok.empty() && reg_final >= 0. && reg_final <= target;
+  }
+  for(int i = 0; i < N; ++i)
+    s.solution[i] = u[i];
+  Output::print<1>(converged ? "" : "MAX_", "NONLINEAR ITERATION: ite ", it_total,
+                   " res ", res_final, " rejections ", rej_total, " time ",
+                   GetTime() - t0, " restarts 0 (", this->db["algstab_solver"],
+                   ", colours ", n_colors, cont ? ", stages" + stages : std::string(""),
+                   cont ? (polished ? ", polished" : ", reg_final " + std::to_string(reg_final))
+                        : std::string(""), ")");
 }
 
 template<int d>

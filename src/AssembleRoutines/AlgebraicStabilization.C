@@ -51,8 +51,10 @@ ParameterDatabase default_database()
   db.add("algstab_solver", "fixed_point", "nonlinear solver of the algebraic "
          "stabilizations: fixed_point (ParMooN's fixed point rhs loop with its "
          "damping), fp_anderson (Anderson acceleration), fp_anderson_safe (with "
-         "the non-monotone safeguard)", {"fixed_point", "fp_anderson",
-         "fp_anderson_safe"});
+         "the non-monotone safeguard), newton (Newton's method, finite-difference "
+         "Jacobian), newton_cont (Newton for the regularized limiters with "
+         "continuation in sigma, then Newton on sigma = 0)", {"fixed_point",
+         "fp_anderson", "fp_anderson_safe", "newton", "newton_cont"});
   db.add("algstab_anderson_depth", 10, "depth of the Anderson acceleration", 1, 100);
   db.add("algstab_anderson_window", 10, "safeguard: an accelerated iterate is "
          "accepted if its residual is below the largest of the last window ones",
@@ -62,6 +64,15 @@ ParameterDatabase default_database()
          "(0: never)", 0, 1000000);
   db.add("algstab_omega_min", 1.e-4, "smallest damping of the safeguard step",
          0., 1.);
+  db.add("algstab_reg", 1.e-6, "regularized limiters: target sigma of the "
+         "Newton continuation (algstab_solver newton_cont) and sigma of the test "
+         "algstab_test_b (0: not regularized)", 0., 1.);
+  db.add("algstab_fd_step", 1.e-10, "Newton: step of the finite-difference "
+         "Jacobian, relative to max{1, max |u|} (1e-7 is too coarse for the "
+         "regularized limiters with sigma = 1e-6 and crosses the kinks of the "
+         "limiters at sigma = 0)", 1.e-14, 1.e-2);
+  db.add("algstab_newton_maxit", 40, "Newton iterations per continuation stage",
+         1, 100000);
   db.add("algstab_tie_tol", 1.e-10, "kuzmin_edge: a_ij and a_ji with relative "
          "difference at most this are a tie (owner: the lexicographically "
          "smaller node)", 0., 1.);
@@ -186,6 +197,7 @@ Operator::Operator(const FEMatrix& A, const ParameterDatabase& db,
   setup_geometry(A);
   p_bbk = db["algstab_bbk_p"];
   q_relax = db["algstab_q_relax"];
+  reg_param = db["algstab_reg"];
   if(method == "bjk")
   {
     // (2.4): a_ji := 0 for i free, j Dirichlet with a_ij < 0 (changes only d)
@@ -603,7 +615,9 @@ void Operator::setup_fbbk(double beta0)
 std::vector<double> Operator::b_edges(const std::vector<double>& u) const
 {
   std::vector<double> b;
-  if(method == "kuzmin_edge")
+  if(reg > 0.)
+    b = b_reg(u);
+  else if(method == "kuzmin_edge")
     b = b_kuzmin(u);
   else if(method == "bjk")
     b = b_bjk(u);
@@ -835,8 +849,235 @@ void Operator::setup_switches(const ParameterDatabase& db, const CoeffFct2D& coe
     }
 }
 
-void Operator::test_b(const std::string& path) const
+namespace
 {
+// smooth positive part v+^2 / (v+ + s) and the functions built from it (galerkit)
+inline double rpos(double v, double sg) { return v > 0. ? v*v/(v + sg) : 0.; }
+inline double rabs(double v, double sg) { return rpos(v, sg) + rpos(-v, sg); }
+inline double rmax(double a, double b, double sg) { return b + rpos(a - b, sg); }
+inline double rmin(double a, double b, double sg) { return a - rpos(a - b, sg); }
+// min{1, Q/P} for P, Q >= 0
+inline double rratio(double Q, double P, double sP) { return 1. - rpos(P - Q, sP)/(P + sP); }
+inline double rheav(double f, double sg) { return 0.5*(1. + f/std::hypot(f, sg)); }
+}
+
+void Operator::set_reg(double sigma)
+{
+  if(sigma > 0. && method == "mc")
+    ErrThrow("AlgebraicStabilization: no regularized MC limiter");
+  reg = sigma;
+}
+
+void Operator::rextrema(const std::vector<double>& u, const std::vector<double>& sn,
+                        std::vector<double>& umax, std::vector<double>& umin) const
+{
+  // log-sum-exp of the smoothed (u_j - u_i)^+ over the neighbours (galerkit _rextrema)
+  const size_t ne = I.size();
+  for(int sgn = 1; sgn >= -1; sgn -= 2)
+  {
+    std::vector<double> xI(ne), xJ(ne), m(N, 0.), e(N, 0.);
+    for(size_t k = 0; k < ne; ++k)
+    {
+      xI[k] = rpos(sgn*(u[J[k]] - u[I[k]]), sn[I[k]]);
+      xJ[k] = rpos(sgn*(u[I[k]] - u[J[k]]), sn[J[k]]);
+      m[I[k]] = std::max(m[I[k]], xI[k]);
+      m[J[k]] = std::max(m[J[k]], xJ[k]);
+    }
+    for(size_t k = 0; k < ne; ++k)
+    {
+      e[I[k]] += std::exp((xI[k] - m[I[k]])/sn[I[k]]);
+      e[J[k]] += std::exp((xJ[k] - m[J[k]])/sn[J[k]]);
+    }
+    std::vector<double>& out = sgn > 0 ? umax : umin;
+    out.assign(N, 0.);
+    for(int i = 0; i < N; ++i)
+    {
+      const double ei = e[i] + std::exp(-m[i]/sn[i]);
+      out[i] = u[i] + sgn*(m[i] + sn[i]*std::log(ei));
+    }
+  }
+}
+
+std::vector<double> Operator::b_reg(const std::vector<double>& u) const
+{
+  const double sg = reg;                         // sigma_u (reg_scale = 1)
+  const size_t ne = I.size();
+  std::vector<double> b(ne, 0.);
+  // the smoothed max and min are not symmetric (rmax(a, 0) = a^2/(a + s), rmax(0, a)
+  // = a): every edge is oriented from the lexicographically smaller node (x, then
+  // y) to the larger one, as galerkit's numbering on its tensor-product meshes
+  auto lex_I = [&](size_t e)
+  {
+    const int i = I[e], j = J[e];
+    return X[i] < X[j] || (X[i] == X[j] && Y[i] < Y[j]);
+  };
+  if(method == "bjk" || method == "kuzmin_edge")
+  {
+    std::vector<double> f(ne), sf(ne), fp(ne), fm(ne), sP(N, 1e-300);
+    for(size_t e = 0; e < ne; ++e)
+    {
+      f[e] = d[e]*(u[J[e]] - u[I[e]]);
+      sf[e] = sg*std::abs(d[e]) + 1e-300;
+      fp[e] = rpos(f[e], sf[e]);
+      fm[e] = -rpos(-f[e], sf[e]);
+      sP[I[e]] += sg*std::abs(d[e]);
+      sP[J[e]] += sg*std::abs(d[e]);
+    }
+    std::vector<double> Pp(N, 0.), Pm(N, 0.), Rp(N, 1.), Rm(N, 1.);
+    if(method == "bjk")
+    {
+      for(size_t e = 0; e < ne; ++e)
+      {
+        Pp[I[e]] += fp[e];  Pp[J[e]] -= fm[e];
+        Pm[I[e]] += fm[e];  Pm[J[e]] -= fp[e];
+      }
+      std::vector<double> sn(N), umax, umin;
+      for(int i = 0; i < N; ++i)
+        sn[i] = sg/std::max(gamma[i], 1.);
+      rextrema(u, sn, umax, umin);
+      for(int i = 0; i < N; ++i)
+      {
+        const double q = gamma[i]*sum_d[i];
+        const double Qp = q_relax*q*(u[i] - umax[i]), Qm = q_relax*q*(u[i] - umin[i]);
+        Rp[i] = rratio(Qp, Pp[i], sP[i]);
+        Rm[i] = rratio(-Qm, -Pm[i], sP[i]);
+      }
+      for(size_t e = 0; e < ne; ++e)
+      {
+        const double h = rheav(f[e], sf[e]);
+        const double ai = Rp[I[e]]*h + Rm[I[e]]*(1. - h);
+        const double aj = Rp[J[e]]*(1. - h) + Rm[J[e]]*h;
+        const bool fi = is_free(I[e]), fj = is_free(J[e]);
+        const double a = (fi && fj) ? (lex_I(e) ? rmin(ai, aj, sg) : rmin(aj, ai, sg))
+                                    : (fi ? ai : (fj ? aj : 1.));
+        b[e] = (1. - a)*d[e];
+      }
+    }
+    else
+    {
+      std::vector<double> Qp(N, 0.), Qm(N, 0.);
+      for(size_t e = 0; e < ne; ++e)
+      {
+        Qp[I[e]] -= fm[e];  Qp[J[e]] += fp[e];     // Q+ = -(sum_I fm - sum_J fp)
+        Qm[I[e]] -= fp[e];  Qm[J[e]] += fm[e];
+        if(owner_is_I[e])
+        {
+          Pp[I[e]] += fp[e];  Pm[I[e]] += fm[e];
+        }
+        else
+        {
+          Pp[J[e]] -= fm[e];  Pm[J[e]] -= fp[e];
+        }
+      }
+      for(int i = 0; i < n_free; ++i)
+      {
+        Rp[i] = rratio(q_relax*Qp[i], Pp[i], sP[i]);
+        Rm[i] = rratio(-q_relax*Qm[i], -Pm[i], sP[i]);
+      }
+      for(size_t e = 0; e < ne; ++e)
+      {
+        const int o = owner_is_I[e] ? I[e] : J[e];
+        const double fo = owner_is_I[e] ? f[e] : -f[e];
+        const double h = rheav(fo, sf[e]);
+        const double a = Rp[o]*h + Rm[o]*(1. - h);
+        b[e] = (1. - a)*d[e];
+      }
+    }
+    return b;
+  }
+  if(method == "fbbk" || method == "sbbk")
+  {
+    std::vector<double> num(N, 0.), den(N, 0.), sb(N, 0.);
+    for(size_t e = 0; e < ne; ++e)
+    {
+      const double du = u[I[e]] - u[J[e]];
+      const double bI = beta_dir[e], bJ = beta_dir[e + ne];
+      num[I[e]] += bI*du;            num[J[e]] -= bJ*du;
+      den[I[e]] += bI*rabs(du, sg);  den[J[e]] += bJ*rabs(du, sg);
+      sb[I[e]] += bI;                sb[J[e]] += bJ;
+    }
+    std::vector<double> xi(N, 0.);
+    for(int i = 0; i < n_free; ++i)
+      if(!on_boundary[i])
+        xi[i] = rabs(num[i], sg)/(den[i] + sg*sb[i] + 1e-300);
+    for(size_t e = 0; e < ne; ++e)
+      b[e] = -w_edge[e]*std::pow(lex_I(e) ? rmax(xi[I[e]], xi[J[e]], sg)
+                                          : rmax(xi[J[e]], xi[I[e]], sg), p_bbk);
+    return b;
+  }
+  if(method == "bbk")
+  {
+    std::vector<double> diff(N, 0.), adiff(N, 0.), deg(N, 0.);
+    for(size_t e = 0; e < ne; ++e)
+    {
+      const double du = u[I[e]] - u[J[e]], ad = rabs(du, sg);
+      diff[I[e]] += du;   diff[J[e]] -= du;
+      adiff[I[e]] += ad;  adiff[J[e]] += ad;
+      deg[I[e]] += 1.;    deg[J[e]] += 1.;
+    }
+    std::vector<double> ai(N, 0.);
+    for(int i = 0; i < n_free; ++i)
+      ai[i] = rabs(diff[i], sg)/(adiff[i] + sg*deg[i]);
+    for(size_t e = 0; e < ne; ++e)
+      b[e] = d[e]*std::pow(lex_I(e) ? rmax(ai[I[e]], ai[J[e]], sg)
+                                    : rmax(ai[J[e]], ai[I[e]], sg), p_bbk);
+    return b;
+  }
+  if(method == "muas" || method == "smuas")
+  {
+    const size_t nd = s.size();
+    std::vector<double> Pp(N, 0.), Pm(N, 0.), Qp(N, 0.), Qm(N, 0.), sP(N, 1e-300), ds(nd);
+    for(size_t k = 0; k < nd; ++k)
+    {
+      const int i = s[k];
+      ds[k] = u[i] - u[l[k]];
+      const double dp = rpos(ds[k], sg), dm = -rpos(-ds[k], sg);
+      Pp[i] += p_w[k]*dp;     Pm[i] += p_w[k]*dm;
+      Qp[i] += q_w[k]*(-dm);  Qm[i] += q_w[k]*(-dp);
+      if(!W_ptr.empty())
+      {
+        double wu = 0.;
+        for(int m = W_ptr[k]; m < W_ptr[k+1]; ++m)
+          wu += W_val[m]*u[W_col[m]];
+        const double r = wu - u[i];
+        Pp[i] += p_w[k]*rpos(-r, sg);   Pm[i] += -p_w[k]*rpos(r, sg);
+        Qp[i] += q_w[k]*rpos(r, sg);    Qm[i] += -q_w[k]*rpos(-r, sg);
+      }
+      sP[i] += sg*(p_w[k] + q_w[k]);
+    }
+    std::vector<double> Rp(N, 1.), Rm(N, 1.);
+    for(int i = 0; i < n_free; ++i)
+    {
+      Rp[i] = rratio(q_relax*Qp[i], Pp[i], sP[i]);
+      Rm[i] = rratio(-q_relax*Qm[i], -Pm[i], sP[i]);
+    }
+    std::vector<double> beta(nd);
+    for(size_t k = 0; k < nd; ++k)
+    {
+      const double h = rheav(ds[k], sg);
+      beta[k] = (1. - Rp[s[k]])*h + (1. - Rm[s[k]])*(1. - h);
+    }
+    for(size_t e = 0; e < ne; ++e)
+    {
+      double b1 = beta[e]*aij[e], b2 = beta[e + ne]*aji[e];
+      double a1 = aij[e], a2 = aji[e];
+      if(!lex_I(e))
+      {
+        std::swap(b1, b2);
+        std::swap(a1, a2);
+      }
+      b[e] = -rmax(rmax(b1, 0., sg*std::abs(a1) + 1e-300), b2, sg*std::abs(a2) + 1e-300);
+    }
+    return b;
+  }
+  ErrThrow("AlgebraicStabilization: no regularized limiter for ", method);
+}
+
+void Operator::test_b(const std::string& path)
+{
+  const double reg_old = reg;
+  if(reg_param > 0.)
+    set_reg(reg_param);
   // u at the dofs, matched by coordinates (nearest node)
   std::ifstream in(path);
   std::vector<std::array<double, 3>> pts;
@@ -867,7 +1108,9 @@ void Operator::test_b(const std::string& path) const
   for(size_t e = 0; e < I.size(); ++e)
     f << I[e] << " " << J[e] << " " << X[I[e]] << " " << Y[I[e]] << " " << X[J[e]]
       << " " << Y[J[e]] << " " << b[e] << "\n";
-  Output::print<1>("AlgebraicStabilization: b_ij(u) written to ", path, ".b");
+  Output::print<1>("AlgebraicStabilization: b_ij(u) written to ", path, ".b",
+                   reg > 0. ? " (regularized)" : "");
+  set_reg(reg_old);
 }
 
 void Operator::write_edges(const std::string& path) const
