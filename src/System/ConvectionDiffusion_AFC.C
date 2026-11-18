@@ -1,4 +1,5 @@
 #include "ConvectionDiffusion_AFC.h"
+#include "AlgebraicStabilization.h"
 #include "Database.h"
 #include "ConvDiff.h"
 #include "AlgebraicFluxCorrection.h"
@@ -53,6 +54,7 @@ ConvectionDiffusion_AFC<d>::ConvectionDiffusion_AFC(const TDomain& domain,
 {
   // A default AFC database. Use to merge AFC database with Parameter DB
   auto afc_db(AlgebraicFluxCorrection::default_afc_database());
+  afc_db.merge(AlgebraicStabilization::default_database(), true);
   afc_db.merge(param_db);
   this->db.merge(afc_db, true);
   
@@ -1147,7 +1149,27 @@ void ConvectionDiffusion_AFC<d>::do_algebraic_flux_correction(
       }
       
       // apply AFC
-      if(is_not_afc_fixed_point_rhs == 1)
+      if(AlgebraicStabilization::active(this->db))
+      {
+        // separate module AlgebraicStabilization (afc_limiter is not used):
+        // first call A (full rows) -> A + D and the operator is set up; then
+        // only the right-hand side g + (D - B(u)) u is corrected
+        if(it_scheme != AlgebraicFluxCorrection::Iteration_Scheme::FIXEDPOINT_RHS)
+          ErrThrow("algstab_method ", this->db["algstab_method"],
+                   " needs afc_iteration_scheme fixed_point_rhs");
+        if(is_not_afc_fixed_point_rhs == 1)
+        {
+          algstab = std::make_shared<AlgebraicStabilization::Operator>(one_block,
+                                                                       this->db);
+          algstab->add_D(one_block);
+          algstab->add_rhs_correction(solEntries, rhsEntries);
+          if(iteration == 1)
+            matrix_copy = s.matrix;
+        }
+        else
+          algstab->add_rhs_correction(solEntries, rhsEntries);
+      }
+      else if(is_not_afc_fixed_point_rhs == 1)
       {
         AlgebraicFluxCorrection::steady_state_algorithm(
           this->get_example(),

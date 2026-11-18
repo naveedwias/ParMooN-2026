@@ -36,6 +36,11 @@ PAIRS = [
     ("muas", "MUAS", {}),
     ("muas", "MUAS_MAX", {}),
     ("bbk", "BBK", {"power_p": "10.0"}),
+    # the separate module AlgebraicStabilization (algstab_method)
+    ("afc_kuzmin", "algstab:kuzmin_edge", {}),
+    ("bbk", "algstab:bbk", {}),
+    ("sbbk", "algstab:sbbk", {}),
+    ("smuas", "algstab:smuas", {}),
 ]
 
 DAT = """[ cross-check with galerkit ]
@@ -60,8 +65,8 @@ SDFEM_TYPE: 0
 algebraic_flux_correction: {afc}
 afc_limiter: {limiter}
 afc_iteration_scheme: {scheme}
-afc_nonlinloop_maxit: 20000
-afc_nonlinloop_epsilon: 1e-12
+afc_nonlinloop_maxit: 100000
+afc_nonlinloop_epsilon: {tol}
 afc_initial_iterate: galerkin
 afc_nonlinloop_anderson_acc: no
 """
@@ -70,8 +75,12 @@ afc_nonlinloop_anderson_acc: no
 def run_parmoon(exe, workdir, name, geo, example, eps, afc="none", limiter="kuzmin",
                 scheme="fixed_point_rhs", extra=None):
     os.makedirs(workdir, exist_ok=True)
-    txt = DAT.format(name=name, geo=geo, example=example, eps=eps, afc=afc, limiter=limiter, scheme=scheme)
-    for k, v in (extra or {}).items():
+    extra = dict(extra or {})
+    if limiter.startswith("algstab:"):           # separate module, afc_limiter unused
+        extra["algstab_method"] = limiter.split(":", 1)[1]
+        limiter = "kuzmin"
+    txt = DAT.format(name=name, geo=geo, example=example, eps=eps, afc=afc, limiter=limiter, scheme=scheme, tol=run_parmoon.tol)
+    for k, v in extra.items():
         txt += f"{k}: {v}\n"
     dat = os.path.join(workdir, name + ".dat")
     open(dat, "w").write(txt)
@@ -105,6 +114,10 @@ def main():
     ap.add_argument("--workdir", default="crosscheck")
     ap.add_argument("--scheme", default="fixed_point_rhs", help="ParMooN afc_iteration_scheme")
     ap.add_argument("--pairs", default=None, help="comma-separated ParMooN limiters to test (default: all)")
+    ap.add_argument("--tol", type=float, default=1e-12, help="residual tolerance of both codes")
+    ap.add_argument("--no-lexi", action="store_true",
+                    help="keep galerkit's vertex numbering (default: lexicographic (x, y), so that both codes "
+                         "give a Kuzmin edge with a_ij = a_ji to the same node)")
     args = ap.parse_args()
 
     from galerkit.convection_diffusion import CDRSolver, get_problem
@@ -121,10 +134,17 @@ def main():
         else:
             mesh = shishkin_mesh(args.n, tau_x=2 * args.eps / 2 * ln, tau_y=2 * args.eps / 3 * ln,
                                  side_y="right", diagonal=diag)
+    if not args.no_lexi:                       # vertices in lexicographic order (x, then y)
+        from galerkit.core.mesh import SimplexMesh
+        order = np.lexsort((mesh.points[:, 1], mesh.points[:, 0]))
+        new = np.empty_like(order)
+        new[order] = np.arange(order.size)
+        mesh = SimplexMesh(mesh.points[order], new[mesh.cells])
     os.makedirs(args.workdir, exist_ok=True)
     geo = os.path.abspath(os.path.join(args.workdir, f"{args.mesh}{args.n}.GEO"))
     write_unit_square_geo(mesh.points, mesh.cells, geo, f"galerkit {args.mesh} n={args.n}")
     exe = os.path.abspath(args.exe)
+    run_parmoon.tol = args.tol
     example = PARMOON_EXAMPLE[args.problem]
     P = mesh.points
     print(f"problem {args.problem}, eps {args.eps:g}, mesh {args.mesh}, n = {args.n}: "
@@ -143,12 +163,27 @@ def main():
 
     pairs = PAIRS if args.pairs is None else [p for p in PAIRS if p[1] in args.pairs.split(",")]
     for gk, pm, extra in pairs:
-        S = CDRSolver(pb, mesh, k=1, stab=gk, afc_solver="auto", afc_maxiter=20000, afc_tol=1e-12) \
+        S = CDRSolver(pb, mesh, k=1, stab=gk, afc_solver="auto", afc_maxiter=100000, afc_tol=args.tol) \
             if "afc_tol" in CDRSolver.__init__.__code__.co_varnames else \
             CDRSolver(pb, mesh, k=1, stab=gk, afc_solver="auto", afc_maxiter=20000)
-        u_g, info = S.solve()
+        if gk == "afc_kuzmin" and pm == "algstab:kuzmin_edge":
+            # the same tie rule as ParMooN's kuzmin_edge: a_ij, a_ji equal up to the relative
+            # tolerance 1e-10 are a tie, which galerkit gives to I (here: the lexicographically
+            # smaller node); galerkit itself compares exactly (only this in-memory operator changes)
+            from galerkit.convection_diffusion.afc import solve_afc
+            op = S.afc_operator(0.0)
+            sc = np.maximum(np.abs(op.aij), np.abs(op.aji))
+            tie = np.abs(op.aij - op.aji) <= 1e-10 * sc
+            op.aji = np.where(tie, op.aij, op.aji)
+            ub = np.zeros(S.V.ndofs)
+            ub[S.dirichlet_dofs] = S.dirichlet_values(0.0)
+            u_g, ainfo = solve_afc(op, ub, solver=S.opts["afc_solver"], tol=S.opts["afc_tol"],
+                                   maxiter=S.opts["afc_maxiter"])
+            info = {"afc": ainfo}
+        else:
+            u_g, info = S.solve()
         a = info.get("afc", {})
-        name = f"afc_{pm}"
+        name = "afc_" + pm.replace(":", "_")
         pts, up = run_parmoon(exe, args.workdir, name, geo, example, args.eps, afc="afc", limiter=pm,
                               scheme=args.scheme, extra=extra)
         if up is None:

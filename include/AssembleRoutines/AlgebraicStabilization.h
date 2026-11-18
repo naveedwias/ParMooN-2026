@@ -1,0 +1,124 @@
+#ifndef __ALGEBRAICSTABILIZATION__
+#define __ALGEBRAICSTABILIZATION__
+
+/** ****************************************************************************
+ * Algebraic stabilizations of P1 convection-diffusion-reaction problems,
+ * implemented separately from AlgebraicFluxCorrection (whose limiters are not
+ * changed): the scheme
+ *
+ *   sum_j (a_ij + b_ij(u)) u_j = g_i (free i),  u_i = u_b(x_i) (Dirichlet i),
+ *
+ * with a symmetric matrix B(u), b_ij = b_ji <= 0, b_ii = -sum_{j != i} b_ij,
+ * defined edge by edge (a_ij: Galerkin matrix with full rows also for the
+ * Dirichlet nodes; d_ij = -max{a_ij, 0, a_ji}; f_ij = d_ij (u_j - u_i)).
+ *
+ * Methods (parameter algstab_method):
+ *  kuzmin_edge  AFC with the Kuzmin limiter (Kuzmin 2007, as in Barrenechea,
+ *               John & Knobloch, SINUM 2016, and Knobloch 2023 (19)-(23)):
+ *               b_ij = (1 - alpha_ij) d_ij, every edge limited at exactly one
+ *               node, its owner: i if a_ji < a_ij; for a_ij = a_ji (relative
+ *               difference at most algstab_tie_tol, i.e. equal up to the
+ *               round-off of the assembly) the node with the lexicographically
+ *               smaller coordinates (x, then y).
+ *               P_i^+- = sum over owned edges of f_ij^+-,
+ *               Q_i^+- = -sum_j f_ij^-+ (all edges), R_i^+- = min{1, Q/P},
+ *               1 where P = 0 and at Dirichlet nodes; alpha_ij = R^+ or R^-
+ *               of the owner by the sign of the flux seen from the owner.
+ *               (AlgebraicFluxCorrection's limiter 'kuzmin' limits an edge
+ *               with a_ij = a_ji at both nodes, so that alpha is not
+ *               symmetric there.)
+ *  bbk          Barrenechea, Burman & Karakatsani (2017) in the form of Ahmed &
+ *               Jha (2027), eq. (7): b_ij = d_ij max{xi_i, xi_j}^p,
+ *               xi_i = |sum_j (u_i - u_j)| / sum_j |u_i - u_j| over the edge
+ *               neighbours (0 if the denominator vanishes and at Dirichlet
+ *               nodes), p = algstab_bbk_p.
+ *  sbbk         edge form of Allendes, Barrenechea & Rankin (2017) with
+ *               beta_ij = 1 ("S-BBK"): b_ij = -C0 |E| max{xi_i, xi_j}^p on
+ *               every mesh edge, xi_i = 0 on the boundary of the domain,
+ *               C0 = algstab_bbk_C0.
+ *  smuas        Knobloch, Numer. Algorithms 94 (2023), (60)-(68):
+ *               b_ij = -max{beta_ij a_ij, 0, beta_ji a_ji},
+ *               P_i^+- = sum_j p_ij {(u_i - u_j)^+- + (u_i - u_ij)^+-},
+ *               Q_i^+- = sum_j q_ij {(u_j - u_i)^+- + (u_ij - u_i)^+-},
+ *               u_ij = u_i + grad u_h|_T . (x_i - x_j) with T the cell of the
+ *               patch of x_i entered by the half line x_i + t (x_i - x_j)
+ *               (u_ij = u_i if the half line leaves the domain), weights (67)
+ *               p_ij = max{a_ij, 0, a_ji}, q_ij = max{|a_ij|, a_ji}, or (68)
+ *               p_ij = q_ij = 1 (p_ij = 0 unless a_ij > 0 or a_ji > 0);
+ *               beta_ij = 1 - R_i^+ (u_i > u_j), 1 - R_i^- (u_i < u_j), 0.
+ * The definitions follow the galerkit implementation of the anisotropic AFC
+ * study (src/galerkit/convection_diffusion/afc.py), against which this code is
+ * cross-checked (scripts/aniso_afc/crosscheck_galerkit.py).
+ *
+ * Nonlinear solver: fixed point iteration with updated right-hand side,
+ *   (A + D) u~ = g + (D - B(u^k)) u^k,
+ * inside ConvectionDiffusion_AFC (afc_iteration_scheme fixed_point_rhs).
+ ******************************************************************************/
+
+#include <memory>
+#include <string>
+#include <vector>
+#include "ParameterDatabase.h"
+
+class FEMatrix;
+
+namespace AlgebraicStabilization
+{
+/// algstab_method (none, kuzmin_edge, bbk, sbbk, smuas) and the parameters
+ParameterDatabase default_database();
+
+/// true if algstab_method is not 'none'
+bool active(const ParameterDatabase& db);
+
+class Operator
+{
+  public:
+    /// A: Galerkin matrix with full rows for all nodes (before D is added),
+    /// on a P1 space of triangles; the free nodes are the active dofs
+    Operator(const FEMatrix& A, const ParameterDatabase& db);
+
+    /// M += D (all rows, as AlgebraicFluxCorrection does with D)
+    void add_D(FEMatrix& M) const;
+
+    /// rhs_i += sum_j (d_ij - b_ij(u)) (u_j - u_i) for the free nodes i
+    void add_rhs_correction(const std::vector<double>& u,
+                            std::vector<double>& rhs) const;
+
+    /// b_ij(u) per undirected edge (edge e = (I[e], J[e]), I < J)
+    std::vector<double> b_edges(const std::vector<double>& u) const;
+
+    size_t n_edges() const { return I.size(); }
+    const std::string& get_method() const { return method; }
+
+  private:
+    std::string method;
+    int N, n_free;
+    // undirected edges I < J, matrix entries, artificial diffusion
+    std::vector<int> I, J;
+    std::vector<double> aij, aji, d;
+    // dof coordinates and the boundary of the domain
+    std::vector<double> X, Y;
+    std::vector<char> on_boundary;
+    // kuzmin_edge: owner of the edge is I
+    std::vector<char> owner_is_I;
+    // bbk-type: exponent, edge weights (sbbk)
+    double p_bbk;
+    std::vector<double> w_edge;
+    // smuas: directed edges s -> l, weights, reflection rows
+    std::vector<int> s, l;
+    std::vector<double> p_w, q_w;
+    std::vector<int> W_ptr, W_col;
+    std::vector<double> W_val;
+
+    bool is_free(int i) const { return i < n_free; }
+    std::vector<double> b_kuzmin(const std::vector<double>& u) const;
+    std::vector<double> b_bbk(const std::vector<double>& u) const;
+    std::vector<double> b_sbbk(const std::vector<double>& u) const;
+    std::vector<double> b_smuas(const std::vector<double>& u) const;
+    void setup_geometry(const FEMatrix& A);
+    void setup_smuas(const FEMatrix& A, const std::string& weights);
+};
+
+} // namespace AlgebraicStabilization
+
+#endif // __ALGEBRAICSTABILIZATION__

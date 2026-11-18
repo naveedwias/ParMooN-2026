@@ -10,6 +10,7 @@ list(APPEND PARMOON_INCLUDE_DIRS "include/AssembleRoutines")
 
 # Source files used in 2D and 3D.
 list(APPEND ASSEMBLE_SOURCES "${PROJECT_SOURCE_DIR}/src/AssembleRoutines/AlgebraicFluxCorrection.C")
+list(APPEND ASSEMBLE_SOURCES "${PROJECT_SOURCE_DIR}/src/AssembleRoutines/AlgebraicStabilization.C")
 list(APPEND ASSEMBLE_SOURCES "${PROJECT_SOURCE_DIR}/src/AssembleRoutines/Assemble2D.C")
 list(APPEND ASSEMBLE_SOURCES "${PROJECT_SOURCE_DIR}/src/AssembleRoutines/Assemble_DG.C")
 list(APPEND ASSEMBLE_SOURCES "${PROJECT_SOURCE_DIR}/src/AssembleRoutines/Assembler4.C")

@@ -20,6 +20,8 @@
 
 #include "ConvectionDiffusion.h"
 #include "anderson.h"
+#include "AlgebraicStabilization.h"
+#include <memory>
 
 template<int d>
 class LocalAssembling;
@@ -39,6 +41,9 @@ class ConvectionDiffusion_AFC : public ConvectionDiffusion<d>
     std::vector<double> afc_gamma;
     /** @brief entries of correction matrix for AFC schemes */
     FEMatrix afc_matrix_D;
+    /// separate algebraic stabilizations (AlgebraicStabilization), set up in
+    /// the first fixed point step if algstab_method is not 'none'
+    std::shared_ptr<AlgebraicStabilization::Operator> algstab;
     /** @brief entries of D-B matrix for AFC schemes with MUAS-type methods */
     FEMatrix afc_matrix_D_B;
     /** @brief limiters */
