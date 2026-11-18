@@ -27,7 +27,8 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from geo_io import read_vtk_point_scalar, write_unit_square_geo  # noqa: E402
 
 # galerkit problem -> ParMooN example (Example_CD2D)
-PARMOON_EXAMPLE = {"boundary_layers": 7, "exp_layer": 27, "test_b23": 28}
+PARMOON_EXAMPLE = {"boundary_layers": 7, "parabolic_layers": 18, "exp_layer": 27, "test_b23": 28,
+                   "interior_layer": 29, "rotating_profile": 30}
 # (galerkit stab, ParMooN afc_limiter, extra ParMooN parameters)
 PAIRS = [
     ("afc", "BJK17", {}),
@@ -81,12 +82,17 @@ def run_parmoon(exe, workdir, name, geo, example, eps, afc="none", limiter="kuzm
         extra["algstab_method"] = limiter.split(":", 1)[1]
         limiter = "kuzmin"
     txt = DAT.format(name=name, geo=geo, example=example, eps=eps, afc=afc, limiter=limiter, scheme=scheme, tol=run_parmoon.tol)
+    extra.setdefault("algstab_write_nodal", name + "_nodal.txt")   # 17 digits (vtk: about 8)
     for k, v in extra.items():
         txt += f"{k}: {v}\n"
     dat = os.path.join(workdir, name + ".dat")
     open(dat, "w").write(txt)
     with open(os.path.join(workdir, name + ".log"), "w") as log:
         subprocess.run([exe, name + ".dat"], cwd=workdir, stdout=log, stderr=subprocess.STDOUT)
+    nodal = os.path.join(workdir, name + "_nodal.txt")
+    if os.path.exists(nodal):
+        d = np.loadtxt(nodal)
+        return d[:, :2], d[:, 2]
     vtks = sorted(f for f in os.listdir(workdir) if f.startswith(name) and f.endswith(".vtk"))
     if not vtks:
         return None, None
@@ -130,7 +136,15 @@ def main():
                         g=lambda x, t=0.0: x[0] + x[1] ** 2)
     else:
         pb = get_problem(args.problem, eps=args.eps)
-    if args.mesh == "uniform":
+    if args.mesh in ("polar", "polar_layer", "tensor_layer", "interior_shishkin"):
+        from galerkit.core.mesh import SimplexMesh
+        import meshes as M
+        if args.mesh == "interior_shishkin":          # Example 4: x = 1 and around y = 1/2
+            P, T = M.layer_mesh(args.n, "shishkin", args.eps, np.sqrt(args.eps), side_y="interior")
+        else:                                         # Example 5
+            P, T = M.rotating_mesh(args.mesh, args.n, eps=args.eps)
+        mesh = SimplexMesh(P, T)
+    elif args.mesh == "uniform":
         mesh = rectangle_mesh(args.n, diagonal="right")
     else:
         diag = {"shishkin_r": "right", "shishkin_l": "left", "shishkin_x": "crossed"}[args.mesh]

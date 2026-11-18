@@ -69,6 +69,14 @@ namespace aniso_test_b23           // case 28
 {
 #include "CD_2D/aniso_test_b23.h"
 }
+namespace aniso_interior_layer     // case 29
+{
+#include "CD_2D/aniso_interior_layer.h"
+}
+namespace aniso_rotating_profile   // case 30
+{
+#include "CD_2D/aniso_rotating_profile.h"
+}
 
 namespace example_1_ABR17
 {
@@ -603,6 +611,24 @@ Example_CD2D::Example_CD2D(const ParameterDatabase& user_input_parameter_db)
       species_in_cavity::ExampleFile();
       break;
       
+    case 29: // straight interior layer (anisotropic AFC study, Example 4)
+      exact_solution.push_back( aniso_interior_layer::Exact );
+      boundary_conditions.push_back( aniso_interior_layer::BoundCondition );
+      boundary_data.push_back( aniso_interior_layer::BoundValue );
+      problem_coefficients = aniso_interior_layer::BilinearCoeffs;
+      aniso_interior_layer::DIFFUSION = this->get_nu();
+      aniso_interior_layer::ExampleFile();
+      break;
+
+    case 30: // profile transported along circles (anisotropic AFC study, Example 5)
+      exact_solution.push_back( aniso_rotating_profile::Exact );
+      boundary_conditions.push_back( aniso_rotating_profile::BoundCondition );
+      boundary_data.push_back( aniso_rotating_profile::BoundValue );
+      problem_coefficients = aniso_rotating_profile::BilinearCoeffs;
+      aniso_rotating_profile::DIFFUSION = this->get_nu();
+      aniso_rotating_profile::ExampleFile();
+      break;
+
     case 28: // cross-check problem b = (2,3), c = 1, f = 0, u_b = x + y^2
       exact_solution.push_back( aniso_test_b23::Exact );
       boundary_conditions.push_back( aniso_test_b23::BoundCondition );
