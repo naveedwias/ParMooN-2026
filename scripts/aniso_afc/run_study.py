@@ -21,10 +21,12 @@ layers, kappa = 10, polar meshes 3), mu2 (relaxed limiters, mu = 2).
 
 Nonlinear solver: the fixed point iteration with updated right-hand side
 (A + D) u~ = g + (D - B(u)) u with ParMooN's dynamic damping, started from the
-low-order solution (afc_initial_iterate afc_zero), at most --maxit (3000)
+low-order solution (afc_initial_iterate afc_zero), or (--solver) Anderson
+acceleration of depth 10 without (fp_anderson) or with the non-monotone safeguard
+(fp_anderson_safe, folder suffix _aas) as in the paper; at most --maxit (3000)
 iterations, Euclidean residual --tol (1e-10; ParMooN's afc_nonlinloop_epsilon
-is set to tol / sqrt(N), because ParMooN multiplies it by sqrt(N)). The safeguarded Anderson acceleration and
-Newton's method for regularized limiters of the paper are not used.
+is set to tol / sqrt(N), because ParMooN multiplies it by sqrt(N)). Newton's
+method for regularized limiters of the paper is not available.
 
 Every run is a folder <prefix>_<study>_<mesh>_n<n>_<method>[_<variant>] in the
 folder <prefix> = cd_<example name> (scripts/naming.py), with the ParMooN input,
@@ -101,6 +103,7 @@ algstab_layer_off: {loff}
 algstab_resolved_off: {roff}
 algstab_aspect_threshold: {kappa}
 algstab_q_relax: {mu}
+algstab_solver: {solver}
 algstab_write_nodal: {prefix}_nodal.txt
 algstab_write_edges: {prefix}_edges.txt
 """
@@ -126,14 +129,18 @@ def make_mesh(ex, eps, kind, n):
     return M.layer_mesh(n, kind, eb_x, eb_y, side_y=side_y)
 
 
-def run_name(study, mesh, n, method, variant):
-    return f"{study}_{mesh}_n{n}_{method}" + ("" if variant == "plain" else f"_{variant}")
+SOLVER_SUFFIX = {"fixed_point": "", "fp_anderson": "_aa", "fp_anderson_safe": "_aas"}
+
+
+def run_name(study, mesh, n, method, variant, solver="fixed_point"):
+    return (f"{study}_{mesh}_n{n}_{method}" + ("" if variant == "plain" else f"_{variant}")
+            + ("" if method in LINEAR else SOLVER_SUFFIX[solver]))
 
 
 def run_job(job):
-    exe, outdir, study, ex, eps, mesh, n, method, variant, maxit, tol = job
+    exe, outdir, study, ex, eps, mesh, n, method, variant, maxit, tol, solver = job
     pre = naming.prefix("cd", EXAMPLE[ex])
-    rdir = os.path.join(outdir, f"{pre}_{run_name(study, mesh, n, method, variant)}")
+    rdir = os.path.join(outdir, f"{pre}_{run_name(study, mesh, n, method, variant, solver)}")
     rec_file = os.path.join(rdir, f"{pre}_record.json")
     if os.path.exists(rec_file):
         return rec_file
@@ -150,17 +157,18 @@ def run_job(job):
                      tol=tol / np.sqrt(len(P)),
                      algstab="none" if method in LINEAR else method,
                      loff=str(variant == "loff").lower(), roff=str(variant == "roff").lower(), kappa=kappa,
-                     mu=2.0 if variant == "mu2" else 1.0)
+                     mu=2.0 if variant == "mu2" else 1.0, solver=solver)
     if method == "supg":                              # coth formula with the cell size in the
         txt += "SDFEM_TYPE: 2\nCELL_MEASURE: 4\n"       # direction of b (= galerkit's SUPG)
-    dat = os.path.join(rdir, f"{pre}_{run_name(study, mesh, n, method, variant)}.dat")
+    dat = os.path.join(rdir, f"{pre}_{run_name(study, mesh, n, method, variant, solver)}.dat")
     open(dat, "w").write(txt)
     t0 = time.perf_counter()
     with open(os.path.join(rdir, f"{pre}_stdout.log"), "w") as log:
         subprocess.run([exe, os.path.basename(dat)], cwd=rdir, stdout=log, stderr=subprocess.STDOUT)
     wall = time.perf_counter() - t0
     logtxt = open(os.path.join(rdir, f"{pre}_stdout.log"), errors="replace").read()
-    rec = dict(example=ex, eps=eps, mesh=mesh, n=n, method=method, variant=variant, wall_time=wall,
+    rec = dict(example=ex, eps=eps, mesh=mesh, n=n, method=method, variant=variant,
+               solver="linear" if method in LINEAR else solver, wall_time=wall,
                **M.mesh_stats(P, T))
     nodal = os.path.join(rdir, f"{pre}_nodal.txt")
     if not os.path.exists(nodal):
@@ -174,10 +182,11 @@ def run_job(job):
     m = re.findall(r"L2\s*:\s*([0-9.eE+-]+)", logtxt)
     if m and ex in (1, 2):
         rec.update(L2=float(m[-1]))
-    it = re.findall(r"(MAX_)?NONLINEAR ITERATION: ite (\d+) res ([0-9.eE+-]+)", logtxt)
+    it = re.findall(r"(MAX_)?NONLINEAR ITERATION: ite (\d+) res ([0-9.eE+-]+) rejections (\d+)", logtxt)
     if method not in LINEAR:
         if it:
-            rec.update(iterations=int(it[-1][1]), residual=float(it[-1][2]), converged=it[-1][0] == "")
+            rec.update(iterations=int(it[-1][1]), residual=float(it[-1][2]), converged=it[-1][0] == "",
+                       rejections=int(it[-1][3]))
         else:
             rec.update(iterations=0, residual=float("nan"), converged=False)
         so = re.findall(r"\((\d+) switched off\)", logtxt)
@@ -220,8 +229,10 @@ def mism(s):
     return f"\\mism{{{s}}}"
 
 
-def report(outdir, study, cases, meshes, methods, ns):
-    R = [r for r in load(outdir) if r.get("variant", "plain") in ("plain", "roff", "loff", "mu2")]
+def report(outdir, study, cases, meshes, methods, ns, solver="fixed_point"):
+    R = [r for r in load(outdir) if r.get("variant", "plain") in ("plain", "roff", "loff", "mu2")
+         and r.get("solver", "fixed_point") in (solver, "linear")]
+    study = study + SOLVER_SUFFIX[solver]
     n1, n0 = max(ns), (sorted(ns)[-2] if len(ns) > 1 else None)
     acc_meshes = [m for m in ("uniform", "shishkin_r", "shishkin_x") if m in meshes]
     lines_acc, lines_it, lines_dmp, lines_mesh, md = [], [], [], [], []
@@ -368,6 +379,8 @@ def main():
     ap.add_argument("--methods", nargs="+", default=list(METHODS))
     ap.add_argument("--variants", nargs="+", default=["plain"])
     ap.add_argument("--maxit", type=int, default=3000)
+    ap.add_argument("--solver", default="fixed_point", choices=list(SOLVER_SUFFIX),
+                    help="fixed_point (ParMooN's loop with damping), fp_anderson, fp_anderson_safe")
     ap.add_argument("--tol", type=float, default=1e-10)
     ap.add_argument("--jobs", type=int, default=1)
     ap.add_argument("--report-only", action="store_true")
@@ -376,7 +389,8 @@ def main():
     os.makedirs(args.outdir, exist_ok=True)
     if not args.report_only:
         exe = os.path.abspath(args.exe)
-        jobs = [(exe, os.path.abspath(args.outdir), args.name, ex, eps, m, n, meth, var, args.maxit, args.tol)
+        jobs = [(exe, os.path.abspath(args.outdir), args.name, ex, eps, m, n, meth, var, args.maxit, args.tol,
+                 args.solver)
                 for ex, eps in cases for m in args.meshes for n in args.n for meth in args.methods
                 for var in args.variants
                 if not (meth in LINEAR and var != "plain")]
@@ -392,7 +406,7 @@ def main():
                 run_job(job)
                 if k % 20 == 0:
                     print(f"  {k}/{len(jobs)} ({time.perf_counter() - t0:.0f} s)")
-    report(args.outdir, args.name, cases, args.meshes, args.methods, args.n)
+    report(args.outdir, args.name, cases, args.meshes, args.methods, args.n, args.solver)
 
 
 if __name__ == "__main__":

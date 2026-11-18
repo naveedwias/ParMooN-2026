@@ -48,6 +48,20 @@ ParameterDatabase default_database()
   db.add("algstab_test_b", "", "test: read u (x y u per line, any node order) from "
          "this file, evaluate b_ij(u) and write it to <file>.b (i j x_i y_i x_j y_j "
          "b_ij); empty: none");
+  db.add("algstab_solver", "fixed_point", "nonlinear solver of the algebraic "
+         "stabilizations: fixed_point (ParMooN's fixed point rhs loop with its "
+         "damping), fp_anderson (Anderson acceleration), fp_anderson_safe (with "
+         "the non-monotone safeguard)", {"fixed_point", "fp_anderson",
+         "fp_anderson_safe"});
+  db.add("algstab_anderson_depth", 10, "depth of the Anderson acceleration", 1, 100);
+  db.add("algstab_anderson_window", 10, "safeguard: an accelerated iterate is "
+         "accepted if its residual is below the largest of the last window ones",
+         1, 1000);
+  db.add("algstab_restart", 200, "Anderson: restart from the best iterate if "
+         "the best residual has not halved within this number of iterations "
+         "(0: never)", 0, 1000000);
+  db.add("algstab_omega_min", 1.e-4, "smallest damping of the safeguard step",
+         0., 1.);
   db.add("algstab_tie_tol", 1.e-10, "kuzmin_edge: a_ij and a_ji with relative "
          "difference at most this are a tie (owner: the lexicographically "
          "smaller node)", 0., 1.);

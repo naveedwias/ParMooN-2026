@@ -66,7 +66,15 @@ int main(int argc, char* argv[])
   cd2d.solve(0);
   timer.restart_and_print("initial solution");
   
-  if( cd2d.get_db()["algebraic_flux_correction"].is("afc") )
+  if( cd2d.get_db()["algebraic_flux_correction"].is("afc")
+      && AlgebraicStabilization::active(cd2d.get_db())
+      && !cd2d.get_db()["algstab_solver"].is("fixed_point") )
+  {
+    // Anderson acceleration (with safeguard) of the separate algebraic
+    // stabilizations: the whole iteration in one call
+    cd2d.solve_algstab_anderson();
+  }
+  else if( cd2d.get_db()["algebraic_flux_correction"].is("afc") )
   {
     size_t Max_It = cd2d.get_db()["afc_nonlinloop_maxit"];
     for(unsigned int k = 1;; k++)

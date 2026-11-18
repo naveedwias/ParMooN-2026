@@ -44,6 +44,9 @@ class ConvectionDiffusion_AFC : public ConvectionDiffusion<d>
     /// separate algebraic stabilizations (AlgebraicStabilization), set up in
     /// the first fixed point step if algstab_method is not 'none'
     std::shared_ptr<AlgebraicStabilization::Operator> algstab;
+    /// the right-hand side g of the first AFC step (before the correction),
+    /// for solve_algstab_anderson
+    std::vector<double> algstab_g;
     /** @brief entries of D-B matrix for AFC schemes with MUAS-type methods */
     FEMatrix afc_matrix_D_B;
     /** @brief limiters */
@@ -76,6 +79,24 @@ class ConvectionDiffusion_AFC : public ConvectionDiffusion<d>
      * Returns whether or not the method is converged
      */
     bool solve(const int iteration);
+
+    /** @brief the whole nonlinear iteration of the separate algebraic
+     * stabilizations (AlgebraicStabilization) by the fixed point map
+     *   G(x) = (A + D)^{-1} (g + (D - B(x)) x)
+     * (one factorization) with Anderson acceleration of depth
+     * algstab_anderson_depth (Walker & Ni 2011), as galerkit _fp_anderson:
+     * algstab_solver fp_anderson, or fp_anderson_safe with the non-monotone
+     * safeguard (an accelerated iterate is accepted only if its residual is
+     * below the largest of the last algstab_anderson_window residuals;
+     * otherwise a damped fixed point step, omega halved down to
+     * algstab_omega_min, and the history is cleared); restart from the best
+     * iterate if the best residual has not halved within algstab_restart
+     * iterations. Start: the low-order solution (A + D) u = g. Stops at the
+     * Euclidean residual afc_nonlinloop_epsilon * sqrt(N) on the free nodes (the
+     * factor sqrt(N) is applied in solve(0)) or after afc_nonlinloop_maxit
+     * iterations; the solution is the best iterate. Call after assemble(0) and
+     * solve(0) with afc_initial_iterate afc_zero. */
+    void solve_algstab_anderson();
     
     /** 
      * @brief measure AFC errors

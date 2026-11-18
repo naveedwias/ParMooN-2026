@@ -1,5 +1,7 @@
 #include "ConvectionDiffusion_AFC.h"
 #include "AlgebraicStabilization.h"
+#include <limits>
+#include <list>
 #include "Database.h"
 #include "ConvDiff.h"
 #include "AlgebraicFluxCorrection.h"
@@ -636,6 +638,228 @@ void ConvectionDiffusion_AFC<d>::dynamic_damping(const int iteration)
 }
 
 /* ************************************************************************* */
+namespace
+{
+// least squares min |F gamma - f| for a few columns: Householder QR, columns
+// with |R_kk| <= eps * max(m, n) * |R_11| are dropped (gamma_k = 0)
+std::vector<double> small_lstsq(const std::vector<std::vector<double>>& cols,
+                                const std::vector<double>& f)
+{
+  const size_t m = f.size(), n = cols.size();
+  std::vector<std::vector<double>> A(cols);
+  std::vector<double> b(f);
+  std::vector<double> diag(n, 0.);
+  for(size_t k = 0; k < n; ++k)
+  {
+    double nrm = 0.;
+    for(size_t i = k; i < m; ++i)
+      nrm += A[k][i]*A[k][i];
+    nrm = std::sqrt(nrm);
+    if(nrm == 0.)
+    {
+      diag[k] = 0.;
+      continue;
+    }
+    const double alpha = A[k][k] > 0. ? -nrm : nrm;
+    std::vector<double> v(m, 0.);
+    for(size_t i = k; i < m; ++i)
+      v[i] = A[k][i];
+    v[k] -= alpha;
+    double vv = 0.;
+    for(size_t i = k; i < m; ++i)
+      vv += v[i]*v[i];
+    if(vv > 0.)
+    {
+      for(size_t j = k; j < n; ++j)
+      {
+        double s = 0.;
+        for(size_t i = k; i < m; ++i)
+          s += v[i]*A[j][i];
+        s *= 2./vv;
+        for(size_t i = k; i < m; ++i)
+          A[j][i] -= s*v[i];
+      }
+      double s = 0.;
+      for(size_t i = k; i < m; ++i)
+        s += v[i]*b[i];
+      s *= 2./vv;
+      for(size_t i = k; i < m; ++i)
+        b[i] -= s*v[i];
+    }
+    diag[k] = A[k][k];
+  }
+  const double cut = std::numeric_limits<double>::epsilon()*std::max(m, n)
+                     *(n > 0 ? std::abs(diag[0]) : 0.);
+  std::vector<double> gamma(n, 0.);
+  for(size_t kk = n; kk-- > 0;)
+  {
+    if(std::abs(diag[kk]) <= cut)
+      continue;
+    double s = b[kk];
+    for(size_t j = kk + 1; j < n; ++j)
+      s -= A[j][kk]*gamma[j];
+    gamma[kk] = s/diag[kk];
+  }
+  return gamma;
+}
+}
+
+template<int d>
+void ConvectionDiffusion_AFC<d>::solve_algstab_anderson()
+{
+  if(!algstab)
+    ErrThrow("solve_algstab_anderson: no algebraic stabilization (call after "
+             "assemble(0) with algstab_method and afc_initial_iterate afc_zero)");
+  double t0 = GetTime();
+  auto& s = this->systems.front();
+  const bool safeguard = this->db["algstab_solver"].is("fp_anderson_safe");
+  const int depth = this->db["algstab_anderson_depth"];
+  const int window = this->db["algstab_anderson_window"];
+  const int restart = this->db["algstab_restart"];
+  const double omega_min = this->db["algstab_omega_min"];
+  const int maxit = (int)(size_t) this->db["afc_nonlinloop_maxit"];
+  const int N = s.solution.length();
+  const int n_free = s.fe_space->get_n_active();
+  // afc_nonlinloop_epsilon has been multiplied by sqrt(N) in solve(0)
+  const double tol = (double) this->db["afc_nonlinloop_epsilon"];
+  // s.matrix = A + D (Dirichlet rows identity); g stored at the first AFC
+  // step; the Dirichlet values are those of the solution vector
+  if((int) algstab_g.size() != N)
+    ErrThrow("solve_algstab_anderson: the right-hand side g was not stored");
+  std::vector<double> g(algstab_g);
+  for(int i = n_free; i < N; ++i)
+    g[i] = s.solution[i];
+  this->ConvectionDiffusion<d>::solver.update_matrix(s.matrix);
+  BlockVector rhs_bv(s.rhs), sol_bv(s.solution), Av(s.rhs);
+  // G(x): (A + D)^{-1} (g + (D - B(x)) x) and the residual |g - (A + B(x)) x|
+  auto G = [&](const std::vector<double>& v, std::vector<double>& gv, double& res)
+  {
+    std::vector<double> r(g);
+    algstab->add_rhs_correction(v, r);          // g + (D - B(v)) v (free rows)
+    for(int i = 0; i < N; ++i)
+      rhs_bv[i] = r[i];
+    for(int i = n_free; i < N; ++i)
+      rhs_bv[i] = g[i];                          // Dirichlet values
+    for(int i = 0; i < N; ++i)
+      sol_bv[i] = v[i];
+    Av.reset();
+    s.matrix.apply(sol_bv, Av);                  // (A + D) v
+    double rr = 0.;
+    for(int i = 0; i < n_free; ++i)
+      rr += (r[i] - Av[i])*(r[i] - Av[i]);
+    res = std::sqrt(rr);
+    this->ConvectionDiffusion<d>::solver.solve(rhs_bv, sol_bv);
+    gv.assign(sol_bv.get_entries(), sol_bv.get_entries() + N);
+  };
+  // start: the low-order solution (A + D) u = g
+  for(int i = 0; i < N; ++i)
+    rhs_bv[i] = g[i];
+  this->ConvectionDiffusion<d>::solver.solve(rhs_bv, sol_bv);
+  std::vector<double> x(sol_bv.get_entries(), sol_bv.get_entries() + N), gx;
+  double res;
+  G(x, gx, res);
+  std::vector<double> hist{res};
+  std::vector<double> best_x(x);
+  double best_res = res;
+  std::list<std::vector<double>> dF, dG;
+  std::vector<double> f_old, g_old;
+  int it = 0, restarts = 0, safe_rej = 0, mark_it = 0;
+  double mark_res = res;
+  auto hist_max = [&]()
+  {
+    double m = 0.;
+    const int k0 = std::max(0, (int) hist.size() - window);
+    for(int k = k0; k < (int) hist.size(); ++k)
+      m = std::max(m, hist[k]);
+    return m;
+  };
+  while(res > tol && it < maxit)
+  {
+    ++it;
+    if(restart > 0 && it - mark_it >= restart)
+    {
+      if(best_res > 0.5*mark_res)                // stagnation: restart from the best
+      {
+        dF.clear(); dG.clear(); f_old.clear(); g_old.clear();
+        x = best_x;
+        G(x, gx, res);
+        ++restarts;
+      }
+      mark_it = it;
+      mark_res = best_res;
+    }
+    std::vector<double> f(N, 0.);
+    for(int i = 0; i < n_free; ++i)
+      f[i] = gx[i] - x[i];
+    if(!f_old.empty())
+    {
+      std::vector<double> df(n_free), dg(n_free);
+      for(int i = 0; i < n_free; ++i)
+      {
+        df[i] = f[i] - f_old[i];
+        dg[i] = gx[i] - g_old[i];
+      }
+      dF.push_back(df);
+      dG.push_back(dg);
+      if((int) dF.size() > depth)
+      {
+        dF.pop_front();
+        dG.pop_front();
+      }
+    }
+    f_old = f;
+    g_old = gx;
+    std::vector<double> xn(gx);
+    if(!dF.empty())
+    {
+      std::vector<std::vector<double>> cols(dF.begin(), dF.end());
+      std::vector<double> ff(f.begin(), f.begin() + n_free);
+      const std::vector<double> gam = small_lstsq(cols, ff);
+      size_t k = 0;
+      for(const auto& dg : dG)
+      {
+        for(int i = 0; i < n_free; ++i)
+          xn[i] -= gam[k]*dg[i];
+        ++k;
+      }
+    }
+    std::vector<double> gn;
+    double resn;
+    G(xn, gn, resn);
+    if(safeguard && !(resn < hist_max()))        // damped fixed point step from x
+    {
+      if(!dF.empty())
+      {
+        dF.clear(); dG.clear(); f_old.clear(); g_old.clear();
+        ++safe_rej;
+      }
+      double omega = 1.;
+      while(true)
+      {
+        for(int i = 0; i < n_free; ++i)
+          xn[i] = x[i] + omega*f[i];
+        G(xn, gn, resn);
+        if(resn < hist_max() || omega <= omega_min)
+          break;
+        omega *= 0.5;
+      }
+    }
+    x = xn; gx = gn; res = resn;
+    hist.push_back(res);
+    if(res < best_res)
+    {
+      best_res = res;
+      best_x = x;
+    }
+  }
+  for(int i = 0; i < N; ++i)
+    s.solution[i] = best_x[i];
+  const double t_total = GetTime() - t0;
+  Output::print<1>(best_res <= tol ? "" : "MAX_", "NONLINEAR ITERATION: ite ", it,
+                   " res ", best_res, " rejections ", safe_rej, " time ", t_total,
+                   " restarts ", restarts, " (", this->db["algstab_solver"], ")");
+}
+
 template<int d>
 void ConvectionDiffusion_AFC<d>::anderson_acceleration_damping(
   int N_Unknowns, const int iteration,
@@ -1168,6 +1392,7 @@ void ConvectionDiffusion_AFC<d>::do_algebraic_flux_correction(
                                                                        bilinear_coeffs);
           if(!edges_file.empty())                 // with d_ij and the switches
             algstab->write_edges(edges_file);
+          algstab_g = rhsEntries;                 // g, before the correction
           const std::string test_file = this->db["algstab_test_b"];
           if(!test_file.empty())
             algstab->test_b(test_file);
