@@ -65,6 +65,10 @@ namespace aniso_exp_layer          // case 27
 {
 #include "CD_2D/aniso_exp_layer.h"
 }
+namespace aniso_test_b23           // case 28
+{
+#include "CD_2D/aniso_test_b23.h"
+}
 
 namespace example_1_ABR17
 {
@@ -599,6 +603,15 @@ Example_CD2D::Example_CD2D(const ParameterDatabase& user_input_parameter_db)
       species_in_cavity::ExampleFile();
       break;
       
+    case 28: // cross-check problem b = (2,3), c = 1, f = 0, u_b = x + y^2
+      exact_solution.push_back( aniso_test_b23::Exact );
+      boundary_conditions.push_back( aniso_test_b23::BoundCondition );
+      boundary_data.push_back( aniso_test_b23::BoundValue );
+      problem_coefficients = aniso_test_b23::BilinearCoeffs;
+      aniso_test_b23::DIFFUSION = this->get_nu();
+      aniso_test_b23::ExampleFile();
+      break;
+
     case 27: // exponential layer at x = 1 (anisotropic AFC study, Example 1)
       exact_solution.push_back( aniso_exp_layer::Exact );
       boundary_conditions.push_back( aniso_exp_layer::BoundCondition );

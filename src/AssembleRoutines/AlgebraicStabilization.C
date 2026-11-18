@@ -4,6 +4,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <fstream>
 #include <limits>
 
 #include "BaseCell.h"
@@ -26,6 +27,10 @@ ParameterDatabase default_database()
          "(b_ij = d_ij max{xi_i, xi_j}^p), sbbk (b_ij = -C0 |E| max{xi}^p), "
          "smuas (Knobloch 2023)",
          {"none", "kuzmin_edge", "bbk", "fbbk", "sbbk", "smuas"});
+  db.add("algstab_write_nodal", "", "file for x, y, u, free of every dof at the "
+         "end (17 digits); empty: none");
+  db.add("algstab_write_edges", "", "file for the edges i, j, x_i, y_i, x_j, y_j, "
+         "a_ij, a_ji of the Galerkin matrix (first AFC step); empty: none");
   db.add("algstab_tie_tol", 1.e-10, "kuzmin_edge: a_ij and a_ji with relative "
          "difference at most this are a tie (owner: the lexicographically "
          "smaller node)", 0., 1.);
@@ -56,6 +61,67 @@ inline double ratio(double Q, double P)
 }
 inline double pos(double x) { return x > 0. ? x : 0.; }
 inline double neg(double x) { return x < 0. ? x : 0.; }
+}
+
+namespace
+{
+void dof_coordinates(const FEMatrix& A, std::vector<double>& X, std::vector<double>& Y)
+{
+  auto space = A.GetFESpace2D();
+  const TCollection* coll = space->GetCollection();
+  const int N = A.get_n_rows();
+  X.assign(N, 0.);
+  Y.assign(N, 0.);
+  for(int c = 0; c < coll->GetN_Cells(); ++c)
+  {
+    const TBaseCell* cell = coll->GetCell(c);
+    if(cell->GetN_Vertices() != 3 || space->get_n_local_dof(c) != 3)
+      ErrThrow("AlgebraicStabilization: P1 elements on triangles only");
+    const int* dof = space->GetGlobalDOF(c);
+    for(int k = 0; k < 3; ++k)
+    {
+      X[dof[k]] = cell->GetVertex(k)->GetX();
+      Y[dof[k]] = cell->GetVertex(k)->GetY();
+    }
+  }
+}
+}
+
+void write_nodal_values(const FEMatrix& A, const std::vector<double>& u,
+                        const std::string& path)
+{
+  std::vector<double> X, Y;
+  dof_coordinates(A, X, Y);
+  const int n_free = A.GetFESpace2D()->get_n_active();
+  std::ofstream f(path);
+  f << "# x y u free\n";
+  f.precision(17);
+  for(size_t i = 0; i < X.size(); ++i)
+    f << X[i] << " " << Y[i] << " " << u[i] << " " << ((int) i < n_free ? 1 : 0) << "\n";
+  Output::print<1>("AlgebraicStabilization: nodal values written to ", path);
+}
+
+void write_edges(const FEMatrix& A, const std::string& path)
+{
+  std::vector<double> X, Y;
+  dof_coordinates(A, X, Y);
+  const int* row = A.get_row_ptr();
+  const int* col = A.get_vector_columns();
+  const double* a = A.GetEntries();
+  const TStructure& st = A.GetStructure();
+  std::ofstream f(path);
+  f << "# i j x_i y_i x_j y_j a_ij a_ji\n";
+  f.precision(17);
+  for(int i = 0; i < A.get_n_rows(); ++i)
+    for(int k = row[i]; k < row[i+1]; ++k)
+    {
+      const int j = col[k];
+      if(j <= i)
+        continue;
+      f << i << " " << j << " " << X[i] << " " << Y[i] << " " << X[j] << " " << Y[j]
+        << " " << a[k] << " " << a[st.get_index_of_entry(j, i)] << "\n";
+    }
+  Output::print<1>("AlgebraicStabilization: edges written to ", path);
 }
 
 Operator::Operator(const FEMatrix& A, const ParameterDatabase& db)

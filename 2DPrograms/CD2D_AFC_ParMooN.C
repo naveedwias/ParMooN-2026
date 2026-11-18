@@ -9,6 +9,7 @@
 #include <Domain.h>
 #include <Database.h>
 #include "ConvectionDiffusion_AFC.h"
+#include "AlgebraicStabilization.h"
 #include "ParMooN.h"
 #include <Chrono.h>
 
@@ -83,6 +84,14 @@ int main(int argc, char* argv[])
   timer.print_total_time("whole solution");
 
   cd2d.output();
+  // nodal values with 17 digits (AlgebraicStabilization)
+  const std::string nodal_file = cd2d.get_db()["algstab_write_nodal"];
+  if(!nodal_file.empty())
+  {
+    const FEMatrix& A = *cd2d.get_matrix().get_blocks().at(0);
+    AlgebraicStabilization::write_nodal_values(A,
+      cd2d.get_solution().get_entries_vector(), nodal_file);
+  }
   //=========================================================================
   parmoon::parmoon_finalize();
 } // end main

@@ -76,6 +76,15 @@ ParameterDatabase default_database();
 /// true if algstab_method is not 'none'
 bool active(const ParameterDatabase& db);
 
+/// write x, y, u, free (1) or Dirichlet (0) of every dof of a P1 space on
+/// triangles, with 17 significant digits (the vtk files store about 8)
+void write_nodal_values(const FEMatrix& A, const std::vector<double>& u,
+                        const std::string& path);
+
+/// write i, j, x_i, y_i, x_j, y_j, a_ij, a_ji of every edge of the Galerkin
+/// matrix with full rows (for the DMP mesh conditions)
+void write_edges(const FEMatrix& A, const std::string& path);
+
 class Operator
 {
   public:

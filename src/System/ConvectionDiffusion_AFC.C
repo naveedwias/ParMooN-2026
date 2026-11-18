@@ -1148,6 +1148,10 @@ void ConvectionDiffusion_AFC<d>::do_algebraic_flux_correction(
         afc_gamma.resize(feSpace.get_n_dof(),0.0);  
       }
       
+      // the Galerkin matrix with full rows, for the DMP mesh conditions
+      const std::string edges_file = this->db["algstab_write_edges"];
+      if(is_not_afc_fixed_point_rhs == 1 && iteration <= 1 && !edges_file.empty())
+        AlgebraicStabilization::write_edges(one_block, edges_file);
       // apply AFC
       if(AlgebraicStabilization::active(this->db))
       {

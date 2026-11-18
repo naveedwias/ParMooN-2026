@@ -27,7 +27,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from geo_io import read_vtk_point_scalar, write_unit_square_geo  # noqa: E402
 
 # galerkit problem -> ParMooN example (Example_CD2D)
-PARMOON_EXAMPLE = {"boundary_layers": 7, "exp_layer": 27}
+PARMOON_EXAMPLE = {"boundary_layers": 7, "exp_layer": 27, "test_b23": 28}
 # (galerkit stab, ParMooN afc_limiter, extra ParMooN parameters)
 PAIRS = [
     ("afc", "BJK17", {}),
@@ -124,7 +124,12 @@ def main():
     from galerkit.convection_diffusion import CDRSolver, get_problem
     from galerkit.core.mesh import rectangle_mesh, shishkin_mesh
 
-    pb = get_problem(args.problem, eps=args.eps)
+    if args.problem == "test_b23":                 # data integrated exactly by both codes
+        from galerkit.convection_diffusion.problems import CDRProblem
+        pb = CDRProblem(name="test_b23", dim=2, eps=args.eps, b=np.array([2.0, 3.0]), c=1.0, f=0.0,
+                        g=lambda x, t=0.0: x[0] + x[1] ** 2)
+    else:
+        pb = get_problem(args.problem, eps=args.eps)
     if args.mesh == "uniform":
         mesh = rectangle_mesh(args.n, diagonal="right")
     else:
