@@ -76,10 +76,12 @@ the criterion |r|_2 <= tol of the paper use tol / sqrt(N) (`run_study.py` does).
 
 ## Tables
 
-`run_study.py` writes, per study and solver, the accuracy, iteration, DMP and mesh tables;
-`report_extra.py` (called by it) the tables for the switches, the layer-adapted meshes
-(accuracy and iterations), all solvers, the solved runs (fixed point / Newton continuation)
-and Examples 4 and 5, in the formats of the paper. A full study, e.g.:
+`python3 run_study.py --paper paper_results` writes all tables and the figure of the paper,
+under the paper's file names, from the finished runs (see
+`documentation/ANISO_AFC_RUNS.md`). `--report-only` writes the tables of given cases: the
+accuracy, iteration, DMP and mesh tables (`run_study.py`) and the tables for the switches, the
+layer-adapted meshes, all solvers, the solved runs and Examples 4 and 5 (`report_extra.py`),
+in the formats of the paper. The runs of a full study, e.g.:
 
     S=../ParMooN-2026/scripts/aniso_afc/run_study.py
     python3 $S --jobs 4                                     # Examples 1-3, fixed point
@@ -92,6 +94,8 @@ and Examples 4 and 5, in the formats of the paper. A full study, e.g.:
                 bakhvalov_shishkin bakhvalov --variants plain loff --solver newton_cont
     python3 $S --jobs 4 --cases 5:1e-5 --n 32 64 --meshes uniform polar polar_layer \
                 tensor_layer --variants plain loff --solver newton_cont
+
+    python3 $S --paper paper_results                       # the tables of the paper
 
 Finished runs are skipped, so the commands can be repeated and combined.
 

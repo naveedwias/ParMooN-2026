@@ -3,7 +3,7 @@
 The ParMooN version of the study in the paper *Algebraically stabilized finite element methods on
 layer-adapted meshes: accuracy, discrete maximum principle and nonlinear solvers*
 (galerkit-latex, `convection_diffusion/anisotropic_afc`). Everything below refers to commit
-`cb6f6b1` or later. All commands are run from the build directory, which sits next to the source
+`307aee0` or later. All commands are run from the build directory, which sits next to the source
 tree (`build/` and `ParMooN-2026/` in the same parent directory). The tools themselves are
 described in `scripts/aniso_afc/README.md`.
 
@@ -67,12 +67,12 @@ for sv in fixed_point fp_anderson_safe newton_cont; do
   python3 $S --jobs $J --cases 5:1e-5 --n 32 64 \
           --meshes uniform polar polar_layer tensor_layer --variants plain loff mu2 --solver $sv
 done
-# the tables from all runs (reads the records only)
-python3 $S --report-only --name ex123   --cases $C123 --n 16 32 64 128 --meshes uniform shishkin_r shishkin_l shishkin_x
-python3 $S --report-only --name ex3_n32 --cases 3:1e-8 --n 32 --meshes uniform shishkin_r shishkin_x
-python3 $S --report-only --name ex4     --cases 4:1e-8 --n 16 32 64 --meshes uniform shishkin_r bakhvalov_shishkin bakhvalov
-python3 $S --report-only --name ex5     --cases 5:1e-5 --n 32 64 --meshes uniform polar polar_layer tensor_layer
+# the tables and the figure of the paper from all runs (reads the records only, runs nothing)
+python3 $S --paper paper_results
 ```
+
+`--paper` can be called at any time; it writes what the finished runs allow and names the
+missing tables with the step that gives their runs.
 
 About 3900 runs. Most take seconds; the expensive ones are the fixed point runs at n = 128 that
 reach the limit of 3000 iterations. Several hours to a day on 8 cores is an estimate, not a
@@ -80,27 +80,28 @@ measurement: each step was tested at n <= 32 only.
 
 ## Output
 
-Everything is in `build/cd_aniso/`: one folder per run,
+Two places, both in `build/`:
+
+**`paper_results/`: the results of the paper**, written by `--paper`, under the paper's file
+names, ready to replace the files in the paper's `tables/` folder:
+
+| file | contents |
+|---|---|
+| `aniso_accuracy.tex`, `aniso_dmp.tex`, `aniso_efficiency.tex`, `aniso_mesh.tex` | Examples 1-3: accuracy, DMP, iterations, meshes |
+| `aniso_roff.tex` | switch-off by the Peclet number (Example 2) |
+| `aniso_layermesh_it.tex`, `aniso_layermesh_acc.tex` | layer-adapted meshes |
+| `aniso_anderson.tex`, `aniso_newton_all.tex`, `aniso_newton_reg.tex` | nonlinear solvers |
+| `aniso_interior.tex`, `aniso_rotating.tex` | Examples 4 and 5 |
+| `aniso_errors.pdf` | L2 errors against the number of nodes (PDF instead of the paper's PNG) |
+
+**`cd_aniso/`: the runs** (raw data, not needed for the paper): one folder per run,
 `cd_<example>_<name>_eps<eps>_<mesh>_n<n>_<method>[_<variant>][_<solver>]`, with the ParMooN
 input, the log, the nodal values (17 digits), the edges of the Galerkin matrix, and
 `cd_<example>_record.json` (all measures, iterations, residual, convergence, mesh data, wall
 time). Solver suffixes: `_aa` Anderson, `_aas` Anderson with safeguard, `_nw` Newton, `_nc`
-Newton with continuation. The tables of the last four commands:
-
-| ParMooN file `cd_aniso/cd_aniso_...` | table of the paper |
-|---|---|
-| `ex123_accuracy.tex` | `aniso_accuracy` |
-| `ex123_dmp.tex` | `aniso_dmp` |
-| `ex123_iterations.tex` | `aniso_efficiency` |
-| `ex123_mesh.tex` | `aniso_mesh` |
-| `ex123_switch_roff.tex` | `aniso_roff` |
-| `ex123_layermesh_it.tex`, `ex123_layermesh_acc.tex` | `aniso_layermesh_it`, `aniso_layermesh_acc` |
-| `ex123_solvers.tex` | `aniso_anderson` |
-| `ex123_solved.tex` | `aniso_newton_all` |
-| `ex3_n32_solvers.tex` | `aniso_newton_reg` (without wall times) |
-| `ex4_ex4.tex` | `aniso_interior` |
-| `ex5_ex5.tex` | `aniso_rotating` |
-| `ex123_errors.pdf` | figure `aniso_errors.png` |
+Newton with continuation. Files `cd_aniso/cd_aniso_*` at the top of `cd_aniso/` come from
+earlier versions (interim tables) and can be deleted: `rm -f cd_aniso/cd_aniso_*`.
+`--report-only` still writes the tables of given cases there, if needed.
 
 Failed runs (e.g. a mesh that cannot be built, such as the layer-adapted polar mesh at n = 16)
 are recorded with `"failed": true` and a reason; list them with
@@ -140,7 +141,7 @@ are recorded with `"failed": true` and a reason; list them with
 | `TypeError ... capture_output` in `regression.py` | Python 3.6; fixed in `1f16349` |
 | regression FAIL with equal error, other iteration count | round-off in a sensitive case; fixed in `956eeb4` for Anderson with S-BBK. Other such cases: `--it-tol 0.5`; report a different error or a change of convergence |
 | `the weights beta of fbbk could not be computed` | fixed in `35c2dbf` (Jacobi rotation in the weight QP) |
-| `--report-only` stops with `max() arg is an empty sequence` (e.g. `--name ex5`) | the case has no runs yet (check `ls -d cd_aniso/cd_rotating_profile_* \| wc -l`): run its step first. Since `cb6f6b1` the report says so instead of crashing, and writes only the tables of the requested cases. |
+| `--report-only` stops with `max() arg is an empty sequence` (e.g. `--name ex5`), before `cb6f6b1` | the case has no runs yet (check `ls -d cd_aniso/cd_rotating_profile_* \| wc -l`): run its step first. Since `cb6f6b1` the report says so instead of crashing, and writes only the tables of the requested cases. |
 
 ## Parameter reference
 
