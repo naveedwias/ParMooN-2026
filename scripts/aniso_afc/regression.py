@@ -55,7 +55,8 @@ def run_case(exe, case, work):
                      algstab=meth, loff=str(var == "loff").lower(), roff="false", kappa=10.0, mu=1.0,
                      solver=solver, reg=1e-6, nc_maxit=40)
     open(os.path.join(work, pre + ".dat"), "w").write(txt)
-    out = subprocess.run([exe, pre + ".dat"], cwd=work, capture_output=True, text=True).stdout
+    out = subprocess.run([exe, pre + ".dat"], cwd=work, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                         universal_newlines=True).stdout        # (Python 3.6: no capture_output)
     m = re.findall(r"(MAX_)?NONLINEAR ITERATION: ite (\d+) res (\S+)", out)
     nodal = os.path.join(work, pre + "_nodal.txt")
     if not m or not os.path.exists(nodal):

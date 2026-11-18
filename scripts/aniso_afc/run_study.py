@@ -144,15 +144,32 @@ def mesh_fits(ex, mesh):
     return mesh not in ("polar", "polar_layer", "tensor_layer")
 
 
-def run_name(study, mesh, n, method, variant, solver="fixed_point"):
-    return (f"{study}_{mesh}_n{n}_{method}" + ("" if variant == "plain" else f"_{variant}")
+def run_name(study, eps, mesh, n, method, variant, solver="fixed_point"):
+    # eps is part of the name: Example 1 is run with two values of eps
+    return (f"{study}_eps{eps:.0e}_{mesh}_n{n}_{method}" + ("" if variant == "plain" else f"_{variant}")
             + ("" if method in LINEAR else SOLVER_SUFFIX[solver]))
 
 
 def run_job(job):
+    try:
+        return _run_job(job)
+    except Exception as exc:                          # one damaged run must not stop the study
+        exe, outdir, study, ex, eps, mesh, n, method, variant, maxit, tol, solver = job
+        pre = naming.prefix("cd", EXAMPLE[ex])
+        rdir = os.path.join(outdir, f"{pre}_{run_name(study, eps, mesh, n, method, variant, solver)}")
+        os.makedirs(rdir, exist_ok=True)
+        rec_file = os.path.join(rdir, f"{pre}_record.json")
+        json.dump(dict(example=ex, eps=eps, mesh=mesh, n=n, method=method, variant=variant,
+                       solver="linear" if method in LINEAR else solver, failed=True,
+                       reason=f"{type(exc).__name__}: {exc}"), open(rec_file, "w"), indent=1)
+        print(f"  run failed ({os.path.basename(rdir)}): {type(exc).__name__}: {exc}")
+        return rec_file
+
+
+def _run_job(job):
     exe, outdir, study, ex, eps, mesh, n, method, variant, maxit, tol, solver = job
     pre = naming.prefix("cd", EXAMPLE[ex])
-    rdir = os.path.join(outdir, f"{pre}_{run_name(study, mesh, n, method, variant, solver)}")
+    rdir = os.path.join(outdir, f"{pre}_{run_name(study, eps, mesh, n, method, variant, solver)}")
     rec_file = os.path.join(rdir, f"{pre}_record.json")
     if os.path.exists(rec_file):
         return rec_file
@@ -178,7 +195,7 @@ def run_job(job):
                      mu=2.0 if variant == "mu2" else 1.0, solver=solver, reg=1e-6, nc_maxit=40)
     if method == "supg":                              # coth formula with the cell size in the
         txt += "SDFEM_TYPE: 2\nCELL_MEASURE: 4\n"       # direction of b (= galerkit's SUPG)
-    dat = os.path.join(rdir, f"{pre}_{run_name(study, mesh, n, method, variant, solver)}.dat")
+    dat = os.path.join(rdir, f"{pre}_{run_name(study, eps, mesh, n, method, variant, solver)}.dat")
     open(dat, "w").write(txt)
     t0 = time.perf_counter()
     with open(os.path.join(rdir, f"{pre}_stdout.log"), "w") as log:
