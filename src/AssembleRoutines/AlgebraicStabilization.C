@@ -384,30 +384,21 @@ void Operator::setup_smuas(const FEMatrix& A, const std::string& weights, bool r
 namespace
 {
 // pseudo-inverse solve of the symmetric 2x2 system M x = r (galerkit: lstsq)
-void solve2_pinv(const double M[2][2], const double r[2], double x[2])
+void solve2_pinv(const double M[2][2], const double r[2], double x[2],
+                 double rcond = -1.)
 {
+  // pseudo-inverse of the symmetric 2x2 matrix by a Jacobi rotation (stable
+  // eigenvectors also for tiny off-diagonal entries; the formula (l - d, b)
+  // is not, on the anisotropic patches of Shishkin meshes with eps = 1e-8)
   const double a = M[0][0], b = M[0][1], dd = M[1][1];
-  const double tr = a + dd, det = a*dd - b*b;
-  const double disc = std::sqrt(std::max(0., 0.25*(a - dd)*(a - dd) + b*b));
-  const double l1 = 0.5*tr + disc, l2 = 0.5*tr - disc;     // l1 >= l2
-  const double cut = std::numeric_limits<double>::epsilon()*2.*std::abs(l1);
-  // eigenvectors
-  double v1[2], v2[2];
-  if(std::abs(b) > 0.)
-  {
-    v1[0] = l1 - dd; v1[1] = b;
-  }
-  else if(a >= dd)
-  {
-    v1[0] = 1.; v1[1] = 0.;
-  }
-  else
-  {
-    v1[0] = 0.; v1[1] = 1.;
-  }
-  const double n1 = std::hypot(v1[0], v1[1]);
-  v1[0] /= n1; v1[1] /= n1;
-  v2[0] = -v1[1]; v2[1] = v1[0];
+  const double th = 0.5*std::atan2(2.*b, a - dd);
+  const double c = std::cos(th), sn = std::sin(th);
+  const double l1 = a*c*c + 2.*b*c*sn + dd*sn*sn;
+  const double l2 = a*sn*sn - 2.*b*c*sn + dd*c*c;
+  const double v1[2] = {c, sn}, v2[2] = {-sn, c};
+  // cut-off: numpy lstsq default (eps * size * max |l|) or rcond * max |l|
+  const double lmax = std::max(std::abs(l1), std::abs(l2));
+  const double cut = (rcond < 0. ? std::numeric_limits<double>::epsilon()*2. : rcond)*lmax;
   x[0] = x[1] = 0.;
   if(std::abs(l1) > cut)
   {
@@ -419,7 +410,6 @@ void solve2_pinv(const double M[2][2], const double r[2], double x[2])
     const double c2 = (v2[0]*r[0] + v2[1]*r[1])/l2;
     x[0] += c2*v2[0]; x[1] += c2*v2[1];
   }
-  (void) det;
 }
 
 // argmin |x - 1|^2 subject to T x = 0, x >= beta0 (T: 2 x k, rows scaled to
@@ -541,7 +531,7 @@ std::vector<double> ldp(std::vector<double> T0, std::vector<double> T1, double b
     if(rows == 1)
       step[0] = Jm[0][0] != 0. ? mr[0]/Jm[0][0] : 0.;
     else
-      solve2_pinv(Jm, mr, step);
+      solve2_pinv(Jm, mr, step, 1e-300);   // keep tiny singular values (anisotropy)
     double t = 1.;
     std::vector<double> xn(k);
     double rn[2], ln[2];
@@ -550,9 +540,11 @@ std::vector<double> ldp(std::vector<double> T0, std::vector<double> T1, double b
       ln[0] = lam[0] + t*step[0];
       ln[1] = lam[1] + t*step[1];
       xr(ln, xn, rn);
-      if(std::hypot(rn[0], rn[1]) < nr)
+      if(std::hypot(rn[0], rn[1]) < (1. - 1e-4*t)*nr)
         break;
       t *= 0.5;
+      if(t <= 1e-12)
+        break;
     }
     lam[0] = ln[0]; lam[1] = ln[1];
     x = xn; r[0] = rn[0]; r[1] = rn[1];

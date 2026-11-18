@@ -11,6 +11,7 @@ PostScript meshes of the adaptive programs (mesh_t*.ps) keep their names.
   tnse_bdf2 tnse2d_bdf2imex_cip              Example_TimeCD2D, see EXAMPLES
   tcd       tcd2d_adaptive_tr
   oseen/nse oseen2d_spg_adaptive (problem_type 3 / 5)
+  cd        cd2d_afc (steady convection-diffusion, algebraic stabilizations)
   tnse_old, tcd_old  the deprecated monolithic programs
 """
 import re
@@ -22,6 +23,7 @@ PROBLEMS = {
     "tcd": "tcd",
     "tnse_old": "tnse_old",
     "tcd_old": "tcd_old",
+    "cd": "cd",
 }
 
 # example names per example class
@@ -31,8 +33,11 @@ TIME_NSE = {23: "aaj_smooth", 25: "bdf2_smooth", 26: "lake_at_rest", 27: "shear_
 STEADY_NSE = {21: "aaj_smooth", 22: "aaj_layers", 29: "spg_polynomial",
               33: "spg_polynomial_neumann"}
 TIME_CD = {11: "fgjn_ex2", 14: "fgjn_ex3", 15: "fgjn_ex4", 16: "fgjn_ex5"}
+STEADY_CD = {7: "boundary_layers", 18: "parabolic_layers", 27: "exp_layer", 28: "test_b23",
+             29: "interior_layer", 30: "rotating_profile"}
 EXAMPLES = {"tnse": TIME_NSE, "tnse_bdf2": TIME_NSE, "tnse_old": TIME_NSE,
-            "tcd": TIME_CD, "tcd_old": TIME_CD, "oseen": STEADY_NSE, "nse": STEADY_NSE}
+            "tcd": TIME_CD, "tcd_old": TIME_CD, "oseen": STEADY_NSE, "nse": STEADY_NSE,
+            "cd": STEADY_CD}
 
 
 def example_name(problem, example):
