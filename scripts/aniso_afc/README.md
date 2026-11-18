@@ -1,0 +1,66 @@
+# Algebraic stabilizations on layer-adapted meshes (ParMooN)
+
+Tools for the study of the paper *Algebraically stabilized finite element methods on
+layer-adapted meshes: accuracy, discrete maximum principle and nonlinear solvers*
+(galerkit-latex, `convection_diffusion/anisotropic_afc`), with the ParMooN program
+`cd2d_afc` and the module `AlgebraicStabilization`
+(`src/AssembleRoutines/AlgebraicStabilization.C`).
+
+## Methods (`algstab_method`)
+
+| paper | ParMooN | notes |
+|---|---|---|
+| AFC, BJK | `bjk` | equal to `afc_limiter: BJK17` of AlgebraicFluxCorrection |
+| AFC, Kuzmin | `kuzmin_edge` | one owner per edge; a_ij = a_ji up to round-off (`algstab_tie_tol`) goes to the lexicographically smaller node. `afc_limiter: kuzmin` limits such edges at both nodes (B(u) not symmetric) |
+| AFC, MC | `mc` | equal to `afc_limiter: monolithic` |
+| MUAS | `muas` | equal to `afc_limiter: MUAS_MAX`; `afc_limiter: MUAS` is a different variant (Q_i with \|a_ij\| instead of max{\|a_ij\|, a_ji}) |
+| SMUAS | `smuas` | weights (67) or (68) (`algstab_smuas_weights`); new |
+| BBK | `bbk` | b_ij = d_ij max{xi_i, xi_j}^p; new (`afc_limiter: BBK` is an S-BBK-type edge form) |
+| F-BBK, S-BBK | `fbbk`, `sbbk` | edge weights C0 \|E\|, weights beta_ij of ABR17 (QP per node); new |
+
+Options for all methods: `algstab_resolved_off` (Pe_E <= `algstab_pe_threshold`),
+`algstab_layer_off` (long edges of cells with aspect ratio >= `algstab_aspect_threshold`),
+`algstab_q_relax` (relaxed limiters, mu). Solver: `afc_iteration_scheme: fixed_point_rhs`.
+Output: `algstab_write_nodal` (x y u free, 17 digits), `algstab_write_edges` (a_ij, a_ji,
+d_ij, switch), `algstab_test_b` (b_ij(u) for a given u).
+
+Note: ParMooN stops the AFC iteration at |r|_2 <= `afc_nonlinloop_epsilon` * sqrt(N); for
+the criterion |r|_2 <= tol of the paper use tol / sqrt(N) (`run_study.py` does).
+
+## Examples (`Example_CD2D`)
+
+| paper | example | | paper | example |
+|---|---|---|---|---|
+| 1 exponential layer | 27 | | 4 straight interior layer | 29 |
+| 2 boundary layers | 7 | | 5 profile along circles | 30 |
+| 3 parabolic layers | 18 | | cross-check problem (b = (2,3), c = 1) | 28 |
+
+## Scripts
+
+- `meshes.py`: Shishkin (right, left, both ends), Bakhvalov-Shishkin, Bakhvalov,
+  Duran-Lombardi, splittings `/`, `\`, crossed; the meshes of Example 5 (polar, polar_layer,
+  tensor_layer). `python3 meshes.py` compares 72 meshes with galerkit (identical).
+- `geo_io.py`: points and triangles -> ParMooN `.GEO` (Default_UnitSquare).
+- `measures.py`: errors, reference solutions (erfc; radial heat equation), DMP certificate,
+  local DMP, Laplace > 0 edges.
+- `run_study.py`: the study (runs, records, LaTeX tables, figure); see its docstring.
+- `crosscheck_galerkit.py`, `test_b_galerkit.py`: comparisons with galerkit (solutions;
+  b_ij(u) edge by edge). Require galerkit (`pip install -e <galerkit>`).
+
+## Verification (with galerkit, branch feature/anisotropic-afc)
+
+- Galerkin: equal to round-off on uniform, Shishkin, crossed and polar meshes (Examples 1, 3,
+  4, 5, 28); SUPG with `SDFEM_TYPE 2`, `CELL_MEASURE 4`: 1e-12.
+- b_ij(u) of all eight methods: equal to round-off (fbbk: 1e-11 ... 2e-9 relative, the
+  accuracy of the weight QP) for random u and the solution, also with the switches, mu = 2,
+  and at Neumann nodes (Example 5).
+- Measures: maximal errors, errors away from the layers, DMP certificate and local DMP equal
+  to galerkit's results.json (Example 1); Laplace > 0 counts and mesh data equal to the mesh
+  table of the paper.
+
+## Not yet implemented
+
+The safeguarded Anderson acceleration and Newton's method for regularized limiters with
+continuation (used in the paper for Examples 4 and 5 and in the solver tables); the tables
+for the switches, the other layer-adapted meshes and Examples 4, 5 in the format of the paper
+(the runs and records support them).

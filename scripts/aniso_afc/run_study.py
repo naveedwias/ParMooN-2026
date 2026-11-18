@@ -22,7 +22,8 @@ layers, kappa = 10, polar meshes 3), mu2 (relaxed limiters, mu = 2).
 Nonlinear solver: the fixed point iteration with updated right-hand side
 (A + D) u~ = g + (D - B(u)) u with ParMooN's dynamic damping, started from the
 low-order solution (afc_initial_iterate afc_zero), at most --maxit (3000)
-iterations, residual --tol (1e-10). The safeguarded Anderson acceleration and
+iterations, Euclidean residual --tol (1e-10; ParMooN's afc_nonlinloop_epsilon
+is set to tol / sqrt(N), because ParMooN multiplies it by sqrt(N)). The safeguarded Anderson acceleration and
 Newton's method for regularized limiters of the paper are not used.
 
 Every run is a folder <prefix>_<study>_<mesh>_n<n>_<method>[_<variant>] in the
@@ -143,7 +144,10 @@ def run_job(job):
     kappa = 3.0 if mesh.startswith("polar") else 10.0
     txt = DAT.format(ex=ex, eps=eps, mesh=mesh, n=n, method=method, variant=variant, prefix=pre, geo=geo,
                      example=EXAMPLE[ex], disc="supg" if method == "supg" else "galerkin",
-                     afc="none" if method in LINEAR else "afc", maxit=maxit, tol=tol,
+                     afc="none" if method in LINEAR else "afc", maxit=maxit,
+                     # ParMooN stops at |r|_2 <= afc_nonlinloop_epsilon * sqrt(N): the criterion
+                     # |r|_2 <= tol of the paper needs tol / sqrt(N)
+                     tol=tol / np.sqrt(len(P)),
                      algstab="none" if method in LINEAR else method,
                      loff=str(variant == "loff").lower(), roff=str(variant == "roff").lower(), kappa=kappa,
                      mu=2.0 if variant == "mu2" else 1.0)
