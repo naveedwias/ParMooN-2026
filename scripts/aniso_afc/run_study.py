@@ -23,17 +23,22 @@ Nonlinear solver: the fixed point iteration with updated right-hand side
 (A + D) u~ = g + (D - B(u)) u with ParMooN's dynamic damping, started from the
 low-order solution (afc_initial_iterate afc_zero), or (--solver) Anderson
 acceleration of depth 10 without (fp_anderson) or with the non-monotone safeguard
-(fp_anderson_safe, folder suffix _aas) as in the paper; at most --maxit (3000)
+(fp_anderson_safe, run key suffix _aas) as in the paper; at most --maxit (3000)
 iterations, Euclidean residual --tol (1e-10; ParMooN's afc_nonlinloop_epsilon
 is set to tol / sqrt(N), because ParMooN multiplies it by sqrt(N)), or Newton's
 method (newton; newton_cont: regularized limiters with continuation sigma = 0.1,
-..., 1e-6, at most 40 iterations per stage, then Newton on sigma = 0; folder
+..., 1e-6, at most 40 iterations per stage, then Newton on sigma = 0; run key
 suffix _nc; not for MC), with a coloured finite-difference Jacobian.
 
-Every run is a folder <prefix>_<study>_<mesh>_n<n>_<method>[_<variant>] in the
-folder <prefix> = cd_<example name> (scripts/naming.py), with the ParMooN input,
-log, nodal values (17 digits), edges, and <prefix>_record.json (measures:
-measures.py). Finished runs (with a record) are skipped.
+The runs are collected per example in the folder <outdir>/<prefix>, prefix =
+cd_<example name> (scripts/naming.py), in a few files (store.py):
+<prefix>_runs.jsonl (one line per run: parameters, measures, iterations, status),
+<prefix>_runs.csv (the same as a table), <prefix>_failed.log (logs of the runs
+that failed or did not converge), <prefix>_solutions.npz (nodal values; --solutions
+auto: Examples 4, 5; all; none). Every run is computed in a temporary folder
+(<outdir>/.scratch, removed afterwards); only the main process writes the files.
+Finished runs (a line in the .jsonl) are skipped; failed ones too, unless
+--retry-failed. Different studies: different --outdir.
 
 Output: the runs only. --paper DIR writes all tables and the figure of the
 paper under the paper's file names into DIR (and nothing else); --report-only
@@ -53,8 +58,10 @@ import glob
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from multiprocessing import Pool
 
@@ -67,6 +74,7 @@ import measures as Q  # noqa: E402
 import meshes as M  # noqa: E402
 import naming  # noqa: E402
 from geo_io import write_unit_square_geo  # noqa: E402
+from store import RunStore, mesh_key, run_key  # noqa: E402
 
 EXAMPLE = {1: 27, 2: 7, 3: 18, 4: 29, 5: 30}        # paper example -> Example_CD2D
 METHODS = ("galerkin", "supg", "bjk", "kuzmin_edge", "mc", "muas", "smuas", "bbk", "fbbk", "sbbk")
@@ -148,43 +156,59 @@ def mesh_fits(ex, mesh):
     return mesh not in ("polar", "polar_layer", "tensor_layer")
 
 
-def run_name(study, eps, mesh, n, method, variant, solver="fixed_point"):
-    # eps is part of the name: Example 1 is run with two values of eps
-    return (f"{study}_eps{eps:.0e}_{mesh}_n{n}_{method}" + ("" if variant == "plain" else f"_{variant}")
-            + ("" if method in LINEAR else SOLVER_SUFFIX[solver]))
+def acquire_lock(outdir):
+    """<outdir>/.lock with the process id; stop if another run step is running in outdir (a lock of a
+    process that no longer exists is taken over)"""
+    os.makedirs(outdir, exist_ok=True)
+    lock = os.path.join(outdir, ".lock")
+    if os.path.exists(lock):
+        try:
+            pid = int(open(lock).read().split()[0])
+            os.kill(pid, 0)                           # raises if the process does not exist
+            sys.exit(f"another run step (process {pid}) is running in {outdir}; wait for it, or stop it "
+                     f"(kill {pid}) and start again")
+        except (ValueError, IndexError, ProcessLookupError):
+            pass                                      # stale lock
+        except PermissionError:
+            sys.exit(f"{lock} belongs to a running process of another user")
+    with open(lock, "w") as f:
+        f.write(f"{os.getpid()}\n")
+    return lock
+
+
+def run_key_of(eps, mesh, n, method, variant, solver):
+    return run_key(eps, mesh, n, method, variant, solver, "" if method in LINEAR else SOLVER_SUFFIX[solver])
+
+
+def _tail(text, nlines):
+    return "\n".join(text.splitlines()[-nlines:])
 
 
 def run_job(job):
-    try:
-        return _run_job(job)
-    except Exception as exc:                          # one damaged run must not stop the study
-        exe, outdir, study, ex, eps, mesh, n, method, variant, maxit, tol, solver = job
-        pre = naming.prefix("cd", EXAMPLE[ex])
-        rdir = os.path.join(outdir, f"{pre}_{run_name(study, eps, mesh, n, method, variant, solver)}")
-        os.makedirs(rdir, exist_ok=True)
-        rec_file = os.path.join(rdir, f"{pre}_record.json")
-        json.dump(dict(example=ex, eps=eps, mesh=mesh, n=n, method=method, variant=variant,
-                       solver="linear" if method in LINEAR else solver, failed=True,
-                       reason=f"{type(exc).__name__}: {exc}"), open(rec_file, "w"), indent=1)
-        print(f"  run failed ({os.path.basename(rdir)}): {type(exc).__name__}: {exc}")
-        return rec_file
-
-
-def _run_job(job):
-    exe, outdir, study, ex, eps, mesh, n, method, variant, maxit, tol, solver = job
+    """one run in a temporary folder (removed afterwards); returns (prefix, record, solution, log)
+    for the main process, which alone writes the collected files (store.py)"""
+    exe, outdir, ex, eps, mesh, n, method, variant, maxit, tol, solver, keep_solution = job
     pre = naming.prefix("cd", EXAMPLE[ex])
-    rdir = os.path.join(outdir, f"{pre}_{run_name(study, eps, mesh, n, method, variant, solver)}")
-    rec_file = os.path.join(rdir, f"{pre}_record.json")
-    if os.path.exists(rec_file):
-        return rec_file
-    os.makedirs(rdir, exist_ok=True)
+    key = run_key_of(eps, mesh, n, method, variant, solver)
+    base = dict(run=key, example=ex, eps=eps, mesh=mesh, n=n, method=method, variant=variant,
+                solver="linear" if method in LINEAR else solver)
+    scratch = os.path.join(outdir, ".scratch")
+    os.makedirs(scratch, exist_ok=True)
+    rdir = tempfile.mkdtemp(prefix=f"{pre}_{key}_", dir=scratch)
+    try:
+        return _run_job(job, pre, key, base, rdir)
+    except Exception as exc:                          # one damaged run must not stop the study
+        return pre, dict(base, failed=True, reason=f"{type(exc).__name__}: {exc}"), None, None
+    finally:
+        shutil.rmtree(rdir, ignore_errors=True)
+
+
+def _run_job(job, pre, key, base, rdir):
+    exe, outdir, ex, eps, mesh, n, method, variant, maxit, tol, solver, keep_solution = job
     try:
         P, T = make_mesh(ex, eps, mesh, n)
     except ValueError as exc:                          # e.g. too few cells for a graded mesh
-        json.dump(dict(example=ex, eps=eps, mesh=mesh, n=n, method=method, variant=variant,
-                       solver="linear" if method in LINEAR else solver, failed=True, reason=str(exc)),
-                  open(rec_file, "w"), indent=1)
-        return rec_file
+        return pre, dict(base, failed=True, reason=str(exc)), None, None
     geo = os.path.join(rdir, f"{pre}_mesh.GEO")
     write_unit_square_geo(P, T, geo, f"Example {ex}, {mesh}, n = {n}")
     kappa = 3.0 if mesh.startswith("polar") else 10.0
@@ -199,21 +223,18 @@ def _run_job(job):
                      mu=2.0 if variant == "mu2" else 1.0, solver=solver, reg=1e-6, nc_maxit=40)
     if method == "supg":                              # coth formula with the cell size in the
         txt += "SDFEM_TYPE: 2\nCELL_MEASURE: 4\n"       # direction of b (= galerkit's SUPG)
-    dat = os.path.join(rdir, f"{pre}_{run_name(study, eps, mesh, n, method, variant, solver)}.dat")
+    dat = os.path.join(rdir, f"{pre}_{key}.dat")
     open(dat, "w").write(txt)
     t0 = time.perf_counter()
     with open(os.path.join(rdir, f"{pre}_stdout.log"), "w") as log:
         subprocess.run([exe, os.path.basename(dat)], cwd=rdir, stdout=log, stderr=subprocess.STDOUT)
     wall = time.perf_counter() - t0
     logtxt = open(os.path.join(rdir, f"{pre}_stdout.log"), errors="replace").read()
-    rec = dict(example=ex, eps=eps, mesh=mesh, n=n, method=method, variant=variant,
-               solver="linear" if method in LINEAR else solver, wall_time=wall,
-               **M.mesh_stats(P, T))
+    rec = dict(base, wall_time=wall, **M.mesh_stats(P, T))
     nodal = os.path.join(rdir, f"{pre}_nodal.txt")
     if not os.path.exists(nodal):
-        rec.update(failed=True)
-        json.dump(rec, open(rec_file, "w"), indent=1)
-        return rec_file
+        rec.update(failed=True, reason="ParMooN wrote no solution (see the log)")
+        return pre, rec, None, _tail(logtxt, 2000)
     Pn, un, fr = Q.read_nodal(nodal)
     u, _ = Q.to_mesh_order(P, Pn, un)
     free = Q.to_mesh_order(P, Pn, fr)[0].astype(bool)
@@ -222,6 +243,7 @@ def _run_job(job):
     if m and ex in (1, 2):
         rec.update(L2=float(m[-1]))
     it = re.findall(r"(MAX_)?NONLINEAR ITERATION: ite (\d+) res ([0-9.eE+-]+) rejections (\d+)", logtxt)
+    log = None
     if method not in LINEAR:
         if it:
             rec.update(iterations=int(it[-1][1]), residual=float(it[-1][2]), converged=it[-1][0] == "",
@@ -230,22 +252,22 @@ def _run_job(job):
             rec.update(iterations=0, residual=float("nan"), converged=False)
         so = re.findall(r"\((\d+) switched off\)", logtxt)
         rec.update(n_switched_off=int(so[-1]) if so else 0)
+        if not rec["converged"]:
+            log = _tail(logtxt, 200)
     edges = os.path.join(rdir, f"{pre}_edges.txt")
     if os.path.exists(edges) and method not in LINEAR:
         E = Q.read_edges(edges)
         rec.update(certificate=Q.dmp_certificate(method, P, free, E))
         rec.update(local_dmp=Q.local_dmp(P, free, E, u))
     rec.update(laplace=Q.laplace_positive(P, T))
-    json.dump(rec, open(rec_file, "w"), indent=1)
-    return rec_file
+    solution = (mesh_key(eps, mesh, n), P, u) if keep_solution else None
+    return pre, rec, solution, log
 
 
 # ----------------------------------------------------------------------------- report
 def load(outdir):
-    out = []
-    for f in glob.glob(os.path.join(outdir, "*", "*_record.json")):
-        out.append(json.load(open(f)))
-    return out
+    """all runs (store.py: <outdir>/<prefix>/<prefix>_runs.jsonl)"""
+    return RunStore(outdir).records()
 
 
 def get(R, **kw):
@@ -483,35 +505,66 @@ def main():
     ap.add_argument("--tol", type=float, default=1e-10)
     ap.add_argument("--jobs", type=int, default=1)
     ap.add_argument("--report-only", action="store_true")
+    ap.add_argument("--solutions", default="auto", choices=["auto", "all", "none"],
+                    help="keep the nodal values in <prefix>_solutions.npz: auto (Examples 4, 5: their figures), "
+                         "all, none")
+    ap.add_argument("--retry-failed", action="store_true", help="repeat the runs that failed (default: skipped)")
     ap.add_argument("--paper", metavar="DIR", help="no runs: all tables and the figure of the paper from the "
                     "existing runs, under the paper's file names in DIR (e.g. --paper paper_results)")
     args = ap.parse_args()
     cases = [(int(c.split(":")[0]), float(c.split(":")[1])) for c in args.cases]
     if args.paper:
+        RunStore(args.outdir).write_csv(prefixes=[os.path.basename(os.path.dirname(p)) for p in
+                                                  glob.glob(os.path.join(args.outdir, "*", "*_runs.jsonl"))])
         paper_report(args.outdir, args.paper, args.methods)
         return
     os.makedirs(args.outdir, exist_ok=True)
     if not args.report_only:
         exe = os.path.abspath(args.exe)
-        jobs = [(exe, os.path.abspath(args.outdir), args.name, ex, eps, m, n, meth, var, args.maxit, args.tol,
-                 args.solver)
-                for ex, eps in cases for m in args.meshes for n in args.n for meth in args.methods
-                for var in args.variants
-                if not (meth in LINEAR and var != "plain")
-                and mesh_fits(ex, m)
-                and not (meth == "mc" and args.solver == "newton_cont")]    # MC: no regularization
-        print(f"{len(jobs)} runs")
+        outdir = os.path.abspath(args.outdir)
+        store = RunStore(outdir)
+        lock = acquire_lock(outdir)                   # one run step per outdir at a time
+        # leftovers of an interrupted run step
+        shutil.rmtree(os.path.join(outdir, ".scratch"), ignore_errors=True)
+        done = store.done(retry_failed=args.retry_failed)
+        keep = {"all": lambda ex: True, "none": lambda ex: False, "auto": lambda ex: ex in (4, 5)}[args.solutions]
+        jobs, skipped = [], 0
+        for ex, eps in cases:
+            for m in args.meshes:
+                if not mesh_fits(ex, m):
+                    continue
+                for n in args.n:
+                    for meth in args.methods:
+                        if meth == "mc" and args.solver == "newton_cont":   # MC: no regularization
+                            continue
+                        for var in args.variants:
+                            if meth in LINEAR and var != "plain":
+                                continue
+                            key = run_key_of(eps, m, n, meth, var, args.solver)
+                            if (naming.prefix("cd", EXAMPLE[ex]), key) in done:
+                                skipped += 1
+                                continue
+                            jobs.append((exe, outdir, ex, eps, m, n, meth, var, args.maxit, args.tol, args.solver,
+                                         keep(ex)))
+        print(f"{len(jobs)} runs ({skipped} finished runs skipped)")
         t0 = time.perf_counter()
-        if args.jobs > 1:
-            with Pool(args.jobs) as pool:
-                for k, _ in enumerate(pool.imap_unordered(run_job, jobs), 1):
-                    if k % 20 == 0:
-                        print(f"  {k}/{len(jobs)} ({time.perf_counter() - t0:.0f} s)")
-        else:
-            for k, job in enumerate(jobs, 1):
-                run_job(job)
-                if k % 20 == 0:
-                    print(f"  {k}/{len(jobs)} ({time.perf_counter() - t0:.0f} s)")
+        pool = Pool(args.jobs) if args.jobs > 1 else None
+        results = pool.imap_unordered(run_job, jobs) if pool else map(run_job, jobs)
+        for k, (pre, rec, solution, log) in enumerate(results, 1):
+            store.add(pre, rec, solution, log)                # only the main process writes
+            if rec.get("failed"):
+                print(f"  run failed ({pre} {rec['run']}): {rec.get('reason')}")
+            if k % 20 == 0:
+                print(f"  {k}/{len(jobs)} ({time.perf_counter() - t0:.0f} s)")
+        if pool:
+            pool.close()
+            pool.join()
+        store.write_csv()
+        try:
+            os.rmdir(os.path.join(outdir, ".scratch"))
+        except OSError:
+            pass
+        os.remove(lock)
     if not args.report_only:                          # runs only: no interim tables in outdir
         print(f"runs in {args.outdir}/; the tables and the figure of the paper: "
               f"python3 {os.path.relpath(__file__)} --paper paper_results")
