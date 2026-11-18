@@ -7,11 +7,12 @@ stored reference values in regression_reference.json.
 
   python3 regression.py --exe <build>/parMooN_cd2d_afc_SEQUENTIAL [--update]
 
-Per case: maximal nodal error (Example 1) or the solution at three nodes
-(Example 28), convergence, and the iteration count within --it-tol (relative,
-default 0.2: round-off can change the counts of the nonlinear iterations a
-little). --update writes new reference values (only after a check against
-galerkit).
+Per case: maximal nodal error, convergence, and the iteration count within
+--it-tol (relative, default 0.2). The iteration count is not compared where it
+depends on round-off (ROUNDOFF_SENSITIVE: the safeguarded Anderson acceleration
+of S-BBK, where many accept/reject decisions compare nearly equal residuals, so
+another compiler or UMFPACK/BLAS takes a different path to the same solution).
+--update writes new reference values (only after a check against galerkit).
 """
 import argparse
 import json
@@ -41,6 +42,7 @@ for meth in ("bjk", "muas", "bbk"):
 for meth in ("bjk", "kuzmin_edge", "muas"):
     CASES.append(("ex1_crossed_loff", 1, 1e-4, "shishkin_x", 8, meth, "fixed_point", "loff"))
 CASES.append(("ex2_shishkin_fbbk_nw", 2, 1e-8, "shishkin_r", 16, "fbbk", "newton", "plain"))
+ROUNDOFF_SENSITIVE = {"ex1_shishkin_aas_sbbk"}
 
 
 def run_case(exe, case, work):
@@ -87,11 +89,13 @@ def main():
             print(f"  {key:32s} {r}")
             continue
         g = ref.get(key)
+        check_it = key not in ROUNDOFF_SENSITIVE
         ok = g is not None and not r.get("failed") and r["converged"] == g["converged"] \
             and abs(r["Linf"] - g["Linf"]) <= args.err_tol * max(abs(g["Linf"]), 1e-12) \
-            and abs(r["iterations"] - g["iterations"]) <= args.it_tol * max(g["iterations"], 5)
+            and (not check_it or abs(r["iterations"] - g["iterations"]) <= args.it_tol * max(g["iterations"], 5))
         fails += not ok
-        print(f"  {'ok  ' if ok else 'FAIL'} {key:32s} it {r.get('iterations')} (ref {g and g['iterations']}), "
+        print(f"  {'ok  ' if ok else 'FAIL'} {key:32s} it {r.get('iterations')} (ref {g and g['iterations']}"
+              f"{'' if check_it else ', not compared'}), "
               f"max error {r.get('Linf', float('nan')):.6e} (ref {g and g['Linf']:.6e})" if g else
               f"  FAIL {key}: no reference")
     shutil.rmtree(work, ignore_errors=True)
