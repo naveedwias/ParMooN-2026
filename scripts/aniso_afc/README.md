@@ -44,6 +44,9 @@ the criterion |r|_2 <= tol of the paper use tol / sqrt(N) (`run_study.py` does).
 - `measures.py`: errors, reference solutions (erfc; radial heat equation), DMP certificate,
   local DMP, Laplace > 0 edges.
 - `run_study.py`: the study (runs, LaTeX tables, figure; `--paper`); see its docstring.
+- `hemker_study.py`: the Hemker problem (Example_CD2D 2, `data/mesh/Hemker.PRM`) on a
+  layer-adapted polar mesh around the circle: runs, quantities of interest (min/max, smear_x4 at
+  x = 4, cut lines), figures and VTK files; see `documentation/ANISO_AFC_RUNS.md`.
 - `paper_tables.py`: `aniso_layermesh_acc`, `aniso_newton_reg`, `aniso_rotating` in galerkit's
   layout (with the max u_h column, the wall times and the mu = 2 rows); `--run`: the runs of step 8.
 - `paper_figures.py`: the figures of Examples 1-4 as galerkit draws them: `aniso_meshes`,

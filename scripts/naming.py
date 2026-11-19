@@ -33,7 +33,7 @@ TIME_NSE = {23: "aaj_smooth", 25: "bdf2_smooth", 26: "lake_at_rest", 27: "shear_
 STEADY_NSE = {21: "aaj_smooth", 22: "aaj_layers", 29: "spg_polynomial",
               33: "spg_polynomial_neumann"}
 TIME_CD = {11: "fgjn_ex2", 14: "fgjn_ex3", 15: "fgjn_ex4", 16: "fgjn_ex5"}
-STEADY_CD = {7: "boundary_layers", 18: "parabolic_layers", 27: "exp_layer", 28: "test_b23",
+STEADY_CD = {2: "hemker", 7: "boundary_layers", 18: "parabolic_layers", 27: "exp_layer", 28: "test_b23",
              29: "interior_layer", 30: "rotating_profile"}
 EXAMPLES = {"tnse": TIME_NSE, "tnse_bdf2": TIME_NSE, "tnse_old": TIME_NSE,
             "tcd": TIME_CD, "tcd_old": TIME_CD, "oseen": STEADY_NSE, "nse": STEADY_NSE,

@@ -269,6 +269,51 @@ from the layers 9e-10 against 6e-15 where the nodal values are exact). `aniso_ne
 not solved as in galerkit in 122; the other 4 are Newton at n = 128 (Kuzmin three times solved
 only by galerkit, MUAS + off once only by ParMooN: finite-difference instead of exact Jacobian).
 
+## Hemker problem on a layer-adapted polar mesh (`hemker_study.py`)
+
+```bash
+python3 ../ParMooN-2026/scripts/aniso_afc/hemker_study.py --n 32 64 128 --jobs $J    # runs, then figures
+python3 ../ParMooN-2026/scripts/aniso_afc/hemker_study.py --n 32 64 128 --plot-only  # figures only
+python3 ../ParMooN-2026/scripts/aniso_afc/hemker_study.py --n 16 32 64 --check-mesh  # mesh checks only
+```
+
+Problem: Example_CD2D 2 (`Hemker1996.h`), -eps Lap u + u_x = 0 in (-3, 9) x (-3, 3) minus the
+unit disk, u = 1 on the circle, u = 0 at x = -3, homogeneous Neumann elsewhere; eps = 1e-4
+(`--eps`). Program `cd2d_afc` with the boundary `data/mesh/Hemker.PRM`.
+
+Mesh (`hemker_mesh`): a polar block from the circle to the square [-a, a]^2, a = 1.1 (`--square`;
+rays to the nodes on the boundary of the square), graded along every ray in three zones: n/8 rings in
+[0, 2 eps ln n] (the exponential layer at the front of the circle), n/8 rings up to
+2 sqrt(eps) ln n (the parabolic layers along its sides), the rest uniform; around it a tensor grid
+whose y-nodes are refined around y = +-1 (half-width 2 sqrt(eps) ln n), so that the interior
+layers are refined from x = a to the outflow. n = cells per side of the square (multiple of 4); at
+n = 64: 65 473 nodes (mesh width 2a/n = 0.034 away from the layers). Checked: the triangles tile the domain exactly (area = rectangle minus the
+inscribed polygon, to 1e-14), no folded cells, circle nodes on the circle; ParMooN's nodes equal
+the mesh to 2e-15. The circle parameter of a node uses the angles of `Hemker.PRM`
+(9.424778, 3.141593: 3 pi and pi to 7 digits). Between the circle and x = a the interior
+layers are resolved only by the polar block (not aligned with y = +-1); a small square keeps this
+stretch short. At about 21 000 nodes the layer width smear_x4 (Galerkin / Kuzmin) is 0.165 / 0.363
+with a = 2 (n = 64), 0.130 / 0.180 with a = 1.25 (n = 40) and 0.084 / 0.123 with a = 1.1 (n = 36),
+against the reference 0.0723.
+
+Methods: Galerkin, SUPG, BJK, Kuzmin, MC, MUAS, SMUAS, BBK (`--methods`); nonlinear solver: the
+first of Anderson with safeguard, Newton with continuation, fixed point that solves the scheme,
+otherwise the attempt with the smallest residual (all attempts in the record).
+
+Quantities of interest (as galerkit `qoi.hemker_measures`): u_min, u_max, osc = u_max - u_min,
+undershoot, overshoot, smear_x4 = y(u = 0.1) - y(u = 0.9) on x = 4 scanning y from 3 down to 0
+(reference 0.0723 for eps = 1e-4, Augustin et al., CMAME 200 (2011), as quoted in galerkit;
+`nan` if u_h does not reach 0.9 there), cut lines u_h(4, y), u_h(x, 1), u_h(x, 2).
+
+Output: runs in `cd_hemker/cd_hemker/` (`cd_hemker_runs.jsonl`, `_runs.csv`, `_solutions.npz`);
+in `hemker_results/`: `hemker_mesh_n<n>.png`, `hemker_solutions_n<n>.png`,
+`hemker_cut_x4_n<n>.png`, `hemker_cut_y_n<n>.png`, `hemker_smear.png` (smear_x4 and undershoot
+against n), `hemker_qoi.md` / `.csv`, `hemker_n<n>.vtk` (mesh and all solutions).
+
+Checked against galerkit on the same mesh (n = 16): with a = 1.1 Galerkin, SUPG, MC, MUAS equal to
+2e-13, SMUAS 5e-11, BBK 4e-10, Kuzmin 7e-10; with a = 2 the same to 1e-9 (each solution has
+residual <= 1e-10 in galerkit's scheme), BJK not solved by either code.
+
 ## Conventions of the tables
 
 - **Solved** (all tables): a linear method always; the fixed point iteration and Anderson if they reach
