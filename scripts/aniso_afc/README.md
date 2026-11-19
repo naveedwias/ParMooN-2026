@@ -44,6 +44,9 @@ the criterion |r|_2 <= tol of the paper use tol / sqrt(N) (`run_study.py` does).
 - `measures.py`: errors, reference solutions (erfc; radial heat equation), DMP certificate,
   local DMP, Laplace > 0 edges.
 - `run_study.py`: the study (runs, LaTeX tables, figure; `--paper`); see its docstring.
+- `paper_figures.py`: the figures of Examples 1-4 as galerkit draws them: `aniso_meshes`,
+  `aniso_errors`, `aniso_iterations` (PDF, PNG) and the Example 4 figures `interior_cut_*`,
+  `interior_solutions_shishkin_n64`, `interior_errors` (PNG); `--run` computes the missing runs.
 - `rotating_figure.py`: Example 5 at n = 64, the figures of the paper as galerkit draws them: the
   four meshes and the solutions of Galerkin, SUPG, Kuzmin, MUAS, BBK, and the outlet profiles of
   the ten methods with their variants, the L2 errors against n (PNG), and the solutions as VTK

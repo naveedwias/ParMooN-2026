@@ -244,7 +244,8 @@ def _run_job(job, pre, key, base, rdir):
     m = re.findall(r"L2\s*:\s*([0-9.eE+-]+)", logtxt)
     if m and ex in (1, 2):
         rec.update(L2=float(m[-1]))
-    it = re.findall(r"(MAX_)?NONLINEAR ITERATION: ite (\d+) res ([0-9.eE+-]+) rejections (\d+)", logtxt)
+    # res can be -nan / inf when the iteration blows up (the run then counts as not converged)
+    it = re.findall(r"(MAX_)?NONLINEAR ITERATION: ite (\d+) res ([0-9.eE+-]+|-?nan|-?inf) rejections (\d+)", logtxt)
     log = None
     if method not in LINEAR:
         if it:
@@ -255,6 +256,8 @@ def _run_job(job, pre, key, base, rdir):
         r0 = re.findall(r"res0 ([0-9.eE+-]+|nan|inf)\)", logtxt)
         if r0:                                        # Newton: residual of the scheme with sigma = 0
             rec.update(residual0=float(r0[-1]))
+        if solver == "newton_cont" and it:            # continuation ended with Newton on sigma = 0
+            rec.update(polished=", polished" in logtxt)
         so = re.findall(r"\((\d+) switched off\)", logtxt)
         rec.update(n_switched_off=int(so[-1]) if so else 0)
         if not rec["converged"]:
@@ -454,7 +457,6 @@ PAPER_FILES = [
     ("aniso_dmp.tex", "ex123_dmp.tex", "step 3"),
     ("aniso_efficiency.tex", "ex123_iterations.tex", "step 3"),
     ("aniso_mesh.tex", "ex123_mesh.tex", "step 3"),
-    ("aniso_errors.pdf", "ex123_errors.pdf", "step 3 (needs matplotlib)"),
     ("aniso_roff.tex", "ex123_switch_roff.tex", "step 4"),
     ("aniso_layermesh_it.tex", "ex123_layermesh_it.tex", "step 5"),
     ("aniso_layermesh_acc.tex", "ex123_layermesh_acc.tex", "step 5"),
@@ -487,6 +489,22 @@ def paper_report(outdir, paper_dir, methods):
             print(f"  {paper_name}")
         else:
             missing.append((paper_name, step))
+    # figures of Examples 1-4 in galerkit's layout (paper_figures.py)
+    try:
+        from paper_figures import make_all
+        written = {os.path.basename(p) for p in make_all(outdir, paper_dir, quiet=True)}
+    except Exception as exc:                          # figures are optional
+        print(f"  figures of Examples 1-4: {exc}")
+        written = set()
+    for name, step in (("aniso_meshes.pdf", ""), ("aniso_meshes.png", ""),
+                       ("aniso_errors.pdf", "step 3"), ("aniso_errors.png", "step 3"),
+                       ("aniso_iterations.pdf", "step 3"), ("aniso_iterations.png", "step 3"),
+                       ("interior_cut_shishkin_n64.png", "step 9"), ("interior_cut_uniform_n64.png", "step 9"),
+                       ("interior_solutions_shishkin_n64.png", "step 9"), ("interior_errors.png", "step 9")):
+        if name in written:
+            print(f"  {name}")
+        else:
+            missing.append((name, (step or "matplotlib") + ", or paper_figures.py --run"))
     # Example 5 at n = 64: meshes and solutions, outlet profiles (rotating_figure.py; the VTK files
     # and the summaries with its own call)
     try:

@@ -93,7 +93,10 @@ names, ready to replace the files in the paper's `tables/` folder:
 | `aniso_layermesh_it.tex`, `aniso_layermesh_acc.tex` | layer-adapted meshes |
 | `aniso_anderson.tex`, `aniso_newton_all.tex`, `aniso_newton_reg.tex` | nonlinear solvers |
 | `aniso_interior.tex`, `aniso_rotating.tex` | Examples 4 and 5 |
-| `aniso_errors.pdf` | L2 errors against the number of nodes (PDF instead of the paper's PNG) |
+| `aniso_meshes.{pdf,png}` | the four mesh types of Example 3 at n = 16 (eps = 1e-2); `paper_figures.py`, see below |
+| `aniso_errors.{pdf,png}` | L2 error against n, Examples 1, 2, uniform / Shishkin "/" / crossed; `paper_figures.py` |
+| `aniso_iterations.{pdf,png}` | fixed point iterations against n, Examples 1-3 (eps = 1e-8); `paper_figures.py` |
+| `interior_cut_shishkin_n64.png`, `interior_cut_uniform_n64.png`, `interior_solutions_shishkin_n64.png`, `interior_errors.png` | Example 4: cross sections at x = 1/2, solutions in the layer region, maximal error against n; `paper_figures.py` |
 | `rotating_solutions_n64.png` | Example 5, n = 64: the four meshes and the solutions of Galerkin, SUPG, Kuzmin, MUAS, BBK (min, max in brackets); `rotating_figure.py`, see below |
 | `rotating_outlet_<mesh>_n64.png` | Example 5, n = 64: outlet profiles of the ten methods and their variants against the reference, one figure per mesh; `rotating_figure.py` |
 | `rotating_errors.png` | Example 5: L2 error (r <= 1) of the ten methods against n = 32, 64, 128, one panel per mesh, x = not solved; `rotating_figure.py` |
@@ -142,6 +145,46 @@ rm -f cd_aniso/cd_aniso_*                                                # inter
 ```
 
 The paper tables of converted runs are byte-identical to those of the old layout.
+
+## Figures of Examples 1-4 (`paper_figures.py`)
+
+```bash
+python3 ../ParMooN-2026/scripts/aniso_afc/paper_figures.py                                 # all, from existing runs
+python3 ../ParMooN-2026/scripts/aniso_afc/paper_figures.py --figures interior --run --jobs $J  # Example 4: runs + figures
+python3 ../ParMooN-2026/scripts/aniso_afc/paper_figures.py --figures errors iterations --run --jobs $J
+```
+
+The layouts are those of galerkit's `make_report.py` (`aniso_*`) and `interior_layer.py`
+(`interior_*`); `aniso_*` as PDF and PNG, `interior_*` as PNG, in `paper_results/`.
+
+- `aniso_meshes`: uniform, Shishkin "/", "\\", crossed for Example 3, n = 16, eps = 1e-2 (only to
+  make the layer cells visible). No runs. The meshes are identical to galerkit's.
+- `aniso_errors`: L2 error against n = 16 ... 128 of the eight algebraic methods (fixed point runs,
+  step 3) and SUPG, Example 1 (eps = 1e-4, 1e-8) and Example 2 on the uniform, Shishkin "/" and
+  crossed meshes; dotted: (N^-1 ln N)^2. Where the fixed point iteration did not converge, galerkit
+  takes the solution of a Newton solve if its residual is smaller; here the run of
+  `fp_anderson_safe` or `newton_cont` (steps 6, 7) with the smallest residual of the scheme, if it is
+  smaller than that of the fixed point run (an approximation of galerkit's fallback; without these
+  runs the fixed point iterate is used).
+- `aniso_iterations`: fixed point iterations against n, Examples 1-3 with eps = 1e-8, the same
+  meshes; large open markers: not converged (3000 iterations). ParMooN's fixed point iteration has
+  a dynamic damping that galerkit's `fp_rhs` has not, so the counts differ from galerkit's.
+- `interior_*` (Example 4, eps = 1e-8, n = 16, 32, 64; step 9): the solver of an algebraic method is
+  the first of `fp_anderson_safe`, `newton_cont`, `fixed_point` that converged with a residual of the
+  scheme <= 1e-8 (Newton: only if the continuation ended at sigma = 0, `polished`), as galerkit.
+  `interior_cut_<mesh>_n64`: u along the node column closest to x = 1/2, the ten methods and the
+  variant with the limiter off along the layers against the reference 1/2 erfc((1/2 - y) /
+  (2 sqrt(eps x))) (Shishkin mesh: zoomed to |y - 1/2| <= 1.5 tau_y); `interior_solutions_shishkin_n64`:
+  the reference and the solutions in the layer region; `interior_errors`: maximal nodal error for
+  0.1 <= x <= 1 - tau_x against n, x = not solved. `paper_figures_runs/interior_n64.md` lists the
+  runs used.
+
+`--run` computes the missing runs (finished runs are skipped): for `errors` and `iterations` the
+fixed point runs of step 3 on the three meshes (n = 128: several hours), for `interior` the runs of
+Example 4 solver by solver, each solver only where the earlier ones did not solve the scheme.
+`--paper` writes these figures too. Example 4 runs of earlier versions have no `polished` record:
+for them the converged flag counts (recompute with `run_study.py --redo --cases 4:1e-8 ... --solver
+newton_cont` to apply galerkit's rule).
 
 ## Example 5: meshes, solutions and outlet profiles (`rotating_figure.py`)
 
@@ -194,8 +237,6 @@ mesh of earlier versions with `--redo --meshes tensor_layer --variants loff` for
 
 ## Not yet produced
 
-- Four figures of the paper: `aniso_meshes`, `aniso_iterations`, `interior_cut_shishkin_n64`,
-  `interior_errors` (the data are in the run folders).
 - In the tables: the wall times of `aniso_newton_reg` (recorded as `wall_time`), the column
   max u_h of Kuzmin for Example 3 in `aniso_layermesh_acc`, and the rows with mu = 2 in
   `aniso_rotating` (the runs are done).
@@ -215,6 +256,25 @@ mesh of earlier versions with `--redo --meshes tensor_layer --variants loff` for
   Jacobian).
 - The stopping criterion is the Euclidean residual 1e-10 of the paper: ParMooN multiplies
   `afc_nonlinloop_epsilon` by sqrt(N), and `run_study.py` passes 1e-10 / sqrt(N).
+- Checked for the figures (n <= 64): Examples 1-3 against galerkit's `results.json`: L2 errors where
+  both fixed point iterations converge equal to 7e-9 (median); the fixed point iteration converges
+  in the same cases in 280 of 288 runs; iteration counts median ratio 1.03 (0.16 ... 2.8). On the
+  uniform mesh of Example 1 (eps = 1e-4) every method's L2 error is 0.6 % above galerkit's with the
+  same nodal values (to 1e-9): the quadrature of the unresolved layer, not the solution. Example 4
+  at n = 64 (Shishkin and uniform): every run solved by both codes equal to 4e-6 or better.
+- Several discrete solutions: F-BBK on the Shishkin "/" mesh of Example 1 (n = 16) has two
+  solutions 5e-3 apart, both with residual 1e-10 in galerkit's scheme; ParMooN's fixed point and
+  galerkit's Anderson iteration find one, galerkit's fixed point the other (L2 errors 9 % apart).
+  The same for S-BBK on the tensor-layer mesh of Example 5 (6e-4 apart).
+- **Known problem, not fixed:** F-BBK and S-BBK with the fixed point iteration on the Shishkin "/" and
+  crossed meshes of Example 3 (eps = 1e-8, every n tested) blow up to NaN: after the first step the
+  full update raises the residual (0.09 to 358), the dynamic damping reaches its minimum 0.01 and
+  then accepts the step although the residual still grows, and every later step multiplies the
+  residual by about 85. galerkit's fixed point (no damping) stays bounded (not converged, residual
+  about 1e-2). The runs are recorded as not converged with residual NaN (`res -nan` in the log;
+  runs of earlier versions recorded 0 iterations: recompute them with `--redo`). A fix belongs in
+  the damping of `ConvectionDiffusion_AFC` (reject a step at the minimal damping when the residual
+  grows) and changes the fixed point results of all methods.
 
 ## Troubleshooting
 
