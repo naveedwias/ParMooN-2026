@@ -30,14 +30,14 @@
   "Linf": 0.040727277141583085
  },
  "ex1_shishkin_fp_fbbk": {
-  "iterations": 488,
+  "iterations": 697,
   "converged": true,
-  "Linf": 0.0432876253668667
+  "Linf": 0.04328767316517801
  },
  "ex1_shishkin_fp_sbbk": {
-  "iterations": 730,
+  "iterations": 2642,
   "converged": true,
-  "Linf": 0.036549930383535933
+  "Linf": 0.03654997359234535
  },
  "ex1_shishkin_aas_bjk": {
   "iterations": 29,

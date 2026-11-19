@@ -112,6 +112,7 @@ afc_initial_iterate: afc_zero
 afc_nonlinloop_maxit: {maxit}
 afc_nonlinloop_epsilon: {tol}
 afc_nonlinloop_anderson_acc: no
+afc_nonlinloop_damping_factor_min: 1e-4
 algstab_method: {algstab}
 algstab_layer_off: {loff}
 algstab_resolved_off: {roff}

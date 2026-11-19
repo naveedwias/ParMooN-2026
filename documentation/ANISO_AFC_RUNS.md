@@ -246,8 +246,9 @@ mesh of earlier versions with `--redo --meshes tensor_layer --variants loff` for
 - Errors, DMP certificates and local DMP agree with galerkit wherever both codes converge
   (checked for Example 1). The L2 errors of Examples 1, 2 are ParMooN's (its quadrature; within
   2e-4 relative of galerkit's); those of Examples 4, 5 are the discrete lumped norms of the paper.
-- The fixed point iteration uses ParMooN's dynamic damping. Its iteration counts, and therefore
-  which runs reach the limit of 3000 iterations, differ from the paper's tables.
+- The fixed point iteration uses ParMooN's dynamic damping (minimal damping factor 1e-4 as
+  galerkit, see below). Its iteration counts, and therefore which runs reach the limit of 3000
+  iterations, differ from the paper's tables.
 - Anderson with safeguard: the same convergence, counts within a few percent, the same numbers of
   safeguard rejections. For S-BBK the count depends on round-off (318 or 226 iterations for the
   same solution on two machines).
@@ -276,11 +277,16 @@ mesh of earlier versions with `--redo --meshes tensor_layer --variants loff` for
   `(best iterate; last residual ...)` and `(stopped: residual not finite)`. Converged runs are
   unchanged (regression 18 of 18). These runs now stop after about 85 iterations with residual
   0.01 ... 0.17 (galerkit: 3000 iterations, 0.003 ... 0.05; not converged in either code).
-  galerkit's fixed point halves the damping factor down to 1e-4: with
-  `afc_nonlinloop_damping_factor_min: 1e-4` ParMooN does not blow up either (n = 16, Shishkin "/":
-  3000 iterations, residual 0.051 for F-BBK and 0.021 for S-BBK, galerkit 0.047 and 0.033).
-  `run_study.py` keeps ParMooN's 0.01, which changes no other run; 1e-4 would change the fixed
-  point iteration of all methods. Recompute such runs of earlier versions with `--redo`.
+  `run_study.py` therefore sets `afc_nonlinloop_damping_factor_min: 1e-4`, galerkit's minimum:
+  then these runs do not blow up (n = 16, Shishkin "/": 3000 iterations, residual 0.051 for F-BBK,
+  0.021 for S-BBK; galerkit 0.047, 0.033). Effect on the fixed point runs of Examples 1-3
+  (n = 16, 32, 64, uniform / Shishkin "/" / crossed, 288 runs) against 0.01: no blow-up (before 12),
+  the same convergence as galerkit in 281 runs (before 280), identical iteration counts in 265;
+  7 runs at n = 16 that converged no longer do in 3000 iterations (galerkit converges in 3 of them:
+  F-BBK eps = 1e-4, 1e-8 and S-BBK eps = 1e-8, Example 1, Shishkin "/"), 4 need 3.7-5.9 times as
+  many iterations. Fixed point runs of earlier versions used 0.01: recompute them with `--redo`
+  (the regression references of two cases changed accordingly: F-BBK 488 -> 697, S-BBK
+  730 -> 2642 iterations, the same solutions to 4e-8).
 
 ## Troubleshooting
 
