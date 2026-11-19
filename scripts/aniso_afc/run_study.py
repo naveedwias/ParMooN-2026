@@ -490,11 +490,13 @@ def paper_report(outdir, paper_dir, methods):
     # Example 5 at n = 64: meshes and solutions, outlet profiles (rotating_figure.py; the VTK files
     # and the summaries with its own call)
     try:
-        from rotating_figure import MESHES as ROT_MESHES, make_figure, make_outlet_figures
+        from rotating_figure import MESHES as ROT_MESHES, make_errors_figure, make_figure, make_outlet_figures
         pngs = [make_figure(outdir, paper_dir, vtkdir=None, quiet=True)]
         pngs += make_outlet_figures(outdir, paper_dir, mddir=None, quiet=True)
+        pngs += [make_errors_figure(outdir, paper_dir, mddir=None, quiet=True)]
         pngs = {os.path.basename(p) for p in pngs if p}
-        expected = ["rotating_solutions_n64.png"] + [f"rotating_outlet_{m}_n64.png" for m in ROT_MESHES]
+        expected = (["rotating_solutions_n64.png"] + [f"rotating_outlet_{m}_n64.png" for m in ROT_MESHES]
+                    + ["rotating_errors.png"])
     except Exception as exc:                          # figures are optional
         print(f"  Example 5 figures: {exc}")
         pngs, expected = set(), []

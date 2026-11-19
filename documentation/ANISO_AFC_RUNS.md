@@ -96,6 +96,7 @@ names, ready to replace the files in the paper's `tables/` folder:
 | `aniso_errors.pdf` | L2 errors against the number of nodes (PDF instead of the paper's PNG) |
 | `rotating_solutions_n64.png` | Example 5, n = 64: the four meshes and the solutions of Galerkin, SUPG, Kuzmin, MUAS, BBK (min, max in brackets); `rotating_figure.py`, see below |
 | `rotating_outlet_<mesh>_n64.png` | Example 5, n = 64: outlet profiles of the ten methods and their variants against the reference, one figure per mesh; `rotating_figure.py` |
+| `rotating_errors.png` | Example 5: L2 error (r <= 1) of the ten methods against n = 32, 64, 128, one panel per mesh, x = not solved; `rotating_figure.py` |
 
 **`cd_aniso/`: the runs** (raw data, not needed for the paper): one folder per example with
 four files, e.g. for Example 1:
@@ -156,10 +157,15 @@ Writes, in the layout of galerkit's `rotating_profile.py`:
 - `paper_results/rotating_outlet_<mesh>_n64.png` (four): the outlet profile u_h(0, y) of the ten
   methods against the reference, with the variants "limiter off along layers" (`loff`, aspect
   threshold 3, on the three refined meshes) and "relaxed, mu = 2" (BJK, Kuzmin, MUAS, SMUAS);
+- `paper_results/rotating_errors.png`: per mesh the L2 error for r <= 1 (lumped mass,
+  `L2_r1_lumped`) of the ten methods against n = 32, 64, 128 (`--errors-n`), x where the
+  nonlinear problem was not solved; it needs the runs at n = 32 and 128 too
+  (`--run --figures errors`, about half an hour on 3 cores for n = 128);
 - in `rotating_vtk/`: one VTK file per mesh (`rotating_n64_<mesh>.vtk`: the mesh and every
   solution as point data, `u_Galerkin`, `u_SUPG`, `u_Kuzmin`, ..., `u_<method>_loff`,
   `u_<method>_mu2`), `rotating_solutions_n64.md` (run, solver, iterations, residual, min, max of
-  every panel) and `rotating_outlet_n64.md` (maximal and L1 error of every outlet profile).
+  every panel) and `rotating_outlet_n64.md` (maximal and L1 error of every outlet profile), `rotating_errors.md`
+  (the values of the error figure).
 
 The solver of an algebraic method is chosen as in galerkit: the first of `fp_anderson_safe`,
 `newton_cont`, `fixed_point` that solves the scheme, i.e. the Euclidean residual of the scheme
@@ -169,7 +175,7 @@ run (`res0` in ParMooN's log): when the continuation stops before sigma = 0, the
 solution of the last regularized stage, and its `res` is that of the regularized scheme. `--run`
 computes only the missing runs, in that order, each solver only where the earlier ones did not
 solve the scheme; the runs of step 10 are used if they exist. `--paper` also writes the PNGs (not
-the VTK files) when the runs exist. Options: `--figures solutions outlet`, `--n`,
+the VTK files) when the runs exist. Options: `--figures solutions outlet errors`, `--n`, `--errors-n`,
 `--variant loff|mu2` (solution figure), `--figdir`, `--vtkdir`, `--outdir`.
 
 **Runs of earlier versions** of Example 5 must be recomputed for two reasons: SUPG now uses one
@@ -188,8 +194,8 @@ mesh of earlier versions with `--redo --meshes tensor_layer --variants loff` for
 
 ## Not yet produced
 
-- Five figures of the paper: `aniso_meshes`, `aniso_iterations`, `interior_cut_shishkin_n64`,
-  `interior_errors`, `rotating_errors` (the data are in the run folders).
+- Four figures of the paper: `aniso_meshes`, `aniso_iterations`, `interior_cut_shishkin_n64`,
+  `interior_errors` (the data are in the run folders).
 - In the tables: the wall times of `aniso_newton_reg` (recorded as `wall_time`), the column
   max u_h of Kuzmin for Example 3 in `aniso_layermesh_acc`, and the rows with mu = 2 in
   `aniso_rotating` (the runs are done).

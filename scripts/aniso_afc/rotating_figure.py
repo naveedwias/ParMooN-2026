@@ -72,7 +72,8 @@ LINEAR = ("galerkin", "supg")
 SOLVERS = ("fp_anderson_safe", "newton_cont", "fixed_point")   # galerkit's order
 SUFFIX = {"fixed_point": "", "fp_anderson": "_aa", "fp_anderson_safe": "_aas", "newton": "_nw",
           "newton_cont": "_nc"}
-FIGURES = ("solutions", "outlet")
+FIGURES = ("solutions", "outlet", "errors")
+ERRORS_N = (32, 64, 128)                           # galerkit rotating_profile.py --n
 _trapz = getattr(np, "trapezoid", None) or np.trapz  # numpy >= 2 / older
 
 
@@ -133,18 +134,20 @@ def needed(figures):
     out = []
     if "solutions" in figures:
         out += [(m, meth, "plain") for m in MESHES for meth in SHOW]
-    if "outlet" in figures:
+    if "outlet" in figures or "errors" in figures:
         out += [(m, meth, "plain") for m in MESHES for meth in ALL]
+    if "outlet" in figures:
         out += [(m, meth, "loff") for m in OFF_MESHES for meth in ALL if meth not in LINEAR]
         out += [(m, meth, "mu2") for m in MESHES for meth in RELAXED]
     return list(dict.fromkeys(out))
 
 
 # ----------------------------------------------------------------------------- runs
-def compute_runs(args, figures, solvers):
+def compute_runs(args, figures, solvers, n=None):
     """missing runs with run_study.py, solver by solver, only where no earlier solver converged"""
     study = os.path.join(HERE, "run_study.py")
     todo_all = needed(figures)
+    n = args.n if n is None else n
     for k, solver in enumerate(solvers):
         recs = records(args.outdir)
         groups = {}                                   # (variant, methods) -> meshes: one call per group
@@ -152,15 +155,15 @@ def compute_runs(args, figures, solvers):
             for var in ("plain", "loff", "mu2"):
                 meths = tuple(meth for (m, meth, v) in todo_all if m == mesh and v == var
                               and (k == 0 or (meth not in LINEAR and not solved(
-                                  choose(recs, args.eps, mesh, args.n, meth, var, solvers[:k]))))
+                                  choose(recs, args.eps, mesh, n, meth, var, solvers[:k]))))
                               and not (meth == "mc" and solver == "newton_cont"))
                 if meths:
                     groups.setdefault((var, meths), []).append(mesh)
         for (var, meths), meshes in groups.items():
             cmd = [sys.executable, study, "--exe", args.exe, "--outdir", args.outdir, "--jobs", str(args.jobs),
-                   "--cases", f"5:{args.eps:g}", "--n", str(args.n), "--meshes", *meshes, "--methods", *meths,
+                   "--cases", f"5:{args.eps:g}", "--n", str(n), "--meshes", *meshes, "--methods", *meths,
                    "--variants", var, "--solver", solver, "--solutions", "auto"]
-            print(f"\n[{solver}, {var}] meshes {' '.join(meshes)}: {' '.join(meths)}", flush=True)
+            print(f"\n[n = {n}, {solver}, {var}] meshes {' '.join(meshes)}: {' '.join(meths)}", flush=True)
             subprocess.run(cmd, check=True)
 
 
@@ -407,13 +410,67 @@ def make_outlet_figures(outdir, figdir, mddir=None, n=64, eps=M.ROT_EPS, solver=
     return pngs
 
 
+def make_errors_figure(outdir, figdir, mddir=None, ns=ERRORS_N, eps=M.ROT_EPS, solver="auto", dpi=150, quiet=False):
+    """rotating_errors.png as galerkit: per mesh the L2 error for r <= 1 (lumped P1 mass, measures.errors:
+    L2_r1_lumped) of the ten methods against n, x where the nonlinear problem was not solved; returns the
+    path, or None without runs"""
+    solvers = SOLVERS if solver == "auto" else (solver,)
+    recs = records(outdir)
+    data = {}
+    for mesh in MESHES:
+        for meth in ALL:
+            for n in ns:
+                r = choose(recs, eps, mesh, n, meth, "plain", solvers)
+                if r is not None and r.get("L2_r1_lumped") is not None:
+                    data[mesh, meth, n] = r
+    if not data:
+        if not quiet:
+            print(f"no runs of Example 5 for the error figure in {outdir} (compute them with --run --figures errors)")
+        return None
+    plt = _plt(dpi)
+    cols = ["#1f1f1e", "#6b6a64", "#2a78d6", "#eb6834", "#1baf7a", "#eda100", "#e87ba4", "#008300", "#6250d6",
+            "#e34948"]
+    fig, axs = plt.subplots(1, len(MESHES), figsize=(14, 3.6), sharey=True)
+    lines = [f"# Example 5, eps = {eps:g}: L2 error (r <= 1, lumped mass) against the reference", "",
+             "* = nonlinear problem not solved (residual without regularization > 1e-8); - = no run", "",
+             "| mesh | method | " + " | ".join(f"n = {n}" for n in ns) + " |", "|---|---|" + "---|" * len(ns)]
+    for ax, mesh in zip(axs, MESHES):
+        for c, meth in zip(cols, ALL):
+            ys = [data[mesh, meth, n]["L2_r1_lumped"] if (mesh, meth, n) in data else np.nan for n in ns]
+            ax.loglog(ns, ys, "o-", color=c, ms=3.5, lw=1.1, label=NAME[meth])
+            bad = [(n, data[mesh, meth, n]["L2_r1_lumped"]) for n in ns
+                   if (mesh, meth, n) in data and not solved(data[mesh, meth, n])]
+            if bad:
+                ax.plot(*zip(*bad), "x", color="k", ms=7)
+            lines.append(f"| {mesh} | {NAME[meth]} | " + " | ".join(
+                "-" if (mesh, meth, n) not in data else f"{data[mesh, meth, n]['L2_r1_lumped']:.3e}"
+                + ("" if solved(data[mesh, meth, n]) else "*") for n in ns) + " |")
+        ax.set_title(MNAME[mesh], fontsize=8.5)
+        ax.set_xlabel("n")
+    axs[0].set_ylabel("L2 error (r <= 1)")
+    axs[-1].legend(fontsize=7, frameon=False, ncol=2)
+    fig.suptitle(f"rotating_profile, eps = {eps:g}: L2 error against the reference (x: not solved)")
+    os.makedirs(figdir, exist_ok=True)
+    png = os.path.join(figdir, "rotating_errors.png")
+    fig.savefig(png)
+    plt.close(fig)
+    if mddir:
+        os.makedirs(mddir, exist_ok=True)
+        open(os.path.join(mddir, "rotating_errors.md"), "w").write("\n".join(lines) + "\n")
+    if not quiet:
+        print(f"wrote {png}")
+        print("\n".join(lines[4:]))
+    return png
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--figures", nargs="+", default=list(FIGURES), choices=FIGURES)
     ap.add_argument("--outdir", default="cd_aniso", help="the runs of run_study.py (default cd_aniso)")
     ap.add_argument("--figdir", default="paper_results", help="folder of the PNGs (default paper_results)")
     ap.add_argument("--vtkdir", default="rotating_vtk", help="folder of the VTK files and the summaries")
-    ap.add_argument("--n", type=int, default=64)
+    ap.add_argument("--n", type=int, default=64, help="n of the solution and outlet figures")
+    ap.add_argument("--errors-n", type=int, nargs="+", default=list(ERRORS_N), help="n of the error figure")
     ap.add_argument("--eps", type=float, default=M.ROT_EPS)
     ap.add_argument("--variant", default="plain", choices=["plain", "loff", "mu2"],
                     help="of the algebraic methods in the solution figure (the paper: plain)")
@@ -425,7 +482,13 @@ def main():
     ap.add_argument("--jobs", type=int, default=1)
     args = ap.parse_args()
     if args.run:
-        compute_runs(args, args.figures, SOLVERS if args.solver == "auto" else (args.solver,))
+        solvers = SOLVERS if args.solver == "auto" else (args.solver,)
+        figs = [f for f in args.figures if f != "errors"]
+        if figs:
+            compute_runs(args, figs, solvers)
+        if "errors" in args.figures:
+            for n in args.errors_n:
+                compute_runs(args, ["errors"], solvers, n=n)
     R = Runs(args.outdir, args.n, args.eps, args.solver)
     ok = True
     if "solutions" in args.figures:
@@ -434,6 +497,9 @@ def main():
     if "outlet" in args.figures:
         ok &= bool(make_outlet_figures(args.outdir, args.figdir, args.vtkdir, args.n, args.eps, args.solver,
                                        args.dpi, runs=R))
+    if "errors" in args.figures:
+        ok &= make_errors_figure(args.outdir, args.figdir, args.vtkdir, args.errors_n, args.eps, args.solver,
+                                 args.dpi) is not None
     if not ok:
         sys.exit(1)
 

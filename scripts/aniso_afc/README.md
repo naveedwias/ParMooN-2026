@@ -46,8 +46,8 @@ the criterion |r|_2 <= tol of the paper use tol / sqrt(N) (`run_study.py` does).
 - `run_study.py`: the study (runs, LaTeX tables, figure; `--paper`); see its docstring.
 - `rotating_figure.py`: Example 5 at n = 64, the figures of the paper as galerkit draws them: the
   four meshes and the solutions of Galerkin, SUPG, Kuzmin, MUAS, BBK, and the outlet profiles of
-  the ten methods with their variants (PNG), and the solutions as VTK files; `--run` computes the
-  missing runs.
+  the ten methods with their variants, the L2 errors against n (PNG), and the solutions as VTK
+  files; `--run` computes the missing runs.
 - `store.py`: storage of the runs, one folder per example: `<prefix>_runs.jsonl` (one line per
   run), `_runs.csv`, `_failed.log`, `_solutions.npz`.
 - `convert_runs.py`: runs of earlier versions (one folder per run) into this layout.
