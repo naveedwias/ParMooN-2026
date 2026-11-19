@@ -54,9 +54,13 @@ done
 # Newton with regularized limiters and continuation
 python3 $S --jobs $J --cases $C123 --n 16 32 64 128 \
         --meshes uniform shishkin_r bakhvalov_shishkin bakhvalov --variants plain loff --solver newton_cont
-# Example 3 at n = 32 with the three solvers
-for sv in fp_anderson_safe newton_cont; do
-  python3 $S --jobs $J --cases 3:1e-8 --n 32 --meshes uniform shishkin_r shishkin_x --solver $sv
+# Example 3 at n = 32, 128 with fixed point, Anderson, Newton continuation (aniso_newton_reg;
+# the same as paper_tables.py --run)
+for sv in fixed_point fp_anderson newton_cont; do
+  python3 $S --jobs $J --cases 3:1e-8 --n 32 128 --meshes uniform shishkin_r --solver $sv \
+          --methods bjk kuzmin_edge muas smuas bbk fbbk sbbk
+  python3 $S --jobs $J --cases 3:1e-8 --n 32 128 --meshes shishkin_r --variants loff --solver $sv \
+          --methods bjk kuzmin_edge muas smuas bbk fbbk sbbk
 done
 # Example 4 (straight interior layer)
 for sv in fixed_point fp_anderson_safe newton_cont; do
@@ -90,7 +94,7 @@ names, ready to replace the files in the paper's `tables/` folder:
 |---|---|
 | `aniso_accuracy.tex`, `aniso_dmp.tex`, `aniso_efficiency.tex`, `aniso_mesh.tex` | Examples 1-3: accuracy, DMP, iterations, meshes |
 | `aniso_roff.tex` | switch-off by the Peclet number (Example 2) |
-| `aniso_layermesh_it.tex`, `aniso_layermesh_acc.tex` | layer-adapted meshes |
+| `aniso_layermesh_it.tex`, `aniso_layermesh_acc.tex` | layer-adapted meshes (`aniso_layermesh_acc`: `paper_tables.py`) |
 | `aniso_anderson.tex`, `aniso_newton_all.tex`, `aniso_newton_reg.tex` | nonlinear solvers |
 | `aniso_interior.tex`, `aniso_rotating.tex` | Examples 4 and 5 |
 | `aniso_meshes.{pdf,png}` | the four mesh types of Example 3 at n = 16 (eps = 1e-2); `paper_figures.py`, see below |
@@ -235,11 +239,35 @@ The layer switch of Example 5 (`loff`) now uses the aspect threshold 3 on every 
 (before: 10 on the uniform and the tensor-layer mesh): recompute the `loff` runs on the tensor-layer
 mesh of earlier versions with `--redo --meshes tensor_layer --variants loff` for each solver.
 
-## Not yet produced
+## Tables in galerkit's layout (`paper_tables.py`)
 
-- In the tables: the wall times of `aniso_newton_reg` (recorded as `wall_time`), the column
-  max u_h of Kuzmin for Example 3 in `aniso_layermesh_acc`, and the rows with mu = 2 in
-  `aniso_rotating` (the runs are done).
+```bash
+python3 ../ParMooN-2026/scripts/aniso_afc/paper_tables.py            # from existing runs, into paper_results/
+python3 ../ParMooN-2026/scripts/aniso_afc/paper_tables.py --run --jobs $J   # with the runs of step 8
+```
+
+Three tables of the paper as galerkit's `make_report.py` writes them (`--paper` uses these):
+
+- `aniso_layermesh_acc.tex`: n = 128, eps = 1e-8, the eight mesh rows of galerkit (uniform,
+  Shishkin, Bakhvalov--Shishkin, Bakhvalov, Duran--Lombardi; + off on the three layer-adapted
+  ones): L2 and maximal error away from the layers for Galerkin, Kuzmin, MUAS (Examples 1, 2;
+  not eps = 1e-4, which the report table of `report_extra.py` also has), and the last column max
+  u_h of Kuzmin for Example 3. Fixed point runs (step 5); an unconverged fixed point run is
+  replaced by an Anderson / Newton run with a smaller residual if one exists (as `aniso_errors`).
+- `aniso_newton_reg.tex`: Example 3, n = 32 and 128, uniform / Shishkin "/" / Shishkin "/" + off,
+  fixed point, Anderson (without safeguard) and Newton with continuation: iterations and the wall
+  time of the run (`wall_time`, which depends on the number of parallel runs); not solved (Newton:
+  not ended at sigma = 0) in colour. Runs: step 8 (changed: before it was n = 32 only, with
+  Anderson with safeguard and Newton on uniform / Shishkin "/" / crossed).
+- `aniso_rotating.tex`: Example 5, n = 64, L2 error (r <= 1) and undershoot per mesh for the ten
+  methods, + off and mu = 2 (BJK, Kuzmin, MUAS, SMUAS); solver as `rotating_figure.py`.
+
+Checked against galerkit: `aniso_rotating` cells of runs solved in both codes (55 of 80): L2 to
+2.3e-5 relative, undershoot to 1.6e-9; `aniso_layermesh_acc` at n = 32 (92 cells, all solved in
+both): median relative difference 8e-11, the largest at round-off / tolerance level (error away
+from the layers 9e-10 against 6e-15 where the nodal values are exact). `aniso_newton_reg` (n = 32, 128, 126 cells): solved /
+not solved as in galerkit in 122; the other 4 are Newton at n = 128 (Kuzmin three times solved
+only by galerkit, MUAS + off once only by ParMooN: finite-difference instead of exact Jacobian).
 
 ## What to expect against the galerkit results
 

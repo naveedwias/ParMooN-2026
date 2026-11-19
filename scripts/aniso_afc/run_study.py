@@ -460,12 +460,9 @@ PAPER_FILES = [
     ("aniso_mesh.tex", "ex123_mesh.tex", "step 3"),
     ("aniso_roff.tex", "ex123_switch_roff.tex", "step 4"),
     ("aniso_layermesh_it.tex", "ex123_layermesh_it.tex", "step 5"),
-    ("aniso_layermesh_acc.tex", "ex123_layermesh_acc.tex", "step 5"),
     ("aniso_anderson.tex", "ex123_solvers.tex", "steps 6, 7"),
     ("aniso_newton_all.tex", "ex123_solved.tex", "step 7"),
-    ("aniso_newton_reg.tex", "ex3_n32_solvers.tex", "step 8"),
     ("aniso_interior.tex", "ex4_ex4.tex", "step 9"),
-    ("aniso_rotating.tex", "ex5_ex5.tex", "step 10"),
 ]
 
 
@@ -490,6 +487,19 @@ def paper_report(outdir, paper_dir, methods):
             print(f"  {paper_name}")
         else:
             missing.append((paper_name, step))
+    # three tables in galerkit's layout (paper_tables.py)
+    try:
+        from paper_tables import make_all as make_tables
+        written = {os.path.basename(p) for p in make_tables(outdir, paper_dir, quiet=True)}
+    except Exception as exc:
+        print(f"  tables of paper_tables.py: {exc}")
+        written = set()
+    for name, step in (("aniso_layermesh_acc.tex", "step 5"), ("aniso_newton_reg.tex", "step 8"),
+                       ("aniso_rotating.tex", "step 10")):
+        if name in written:
+            print(f"  {name}")
+        else:
+            missing.append((name, step))
     # figures of Examples 1-4 in galerkit's layout (paper_figures.py)
     try:
         from paper_figures import make_all
