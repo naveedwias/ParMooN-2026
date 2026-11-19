@@ -266,15 +266,21 @@ mesh of earlier versions with `--redo --meshes tensor_layer --variants loff` for
   solutions 5e-3 apart, both with residual 1e-10 in galerkit's scheme; ParMooN's fixed point and
   galerkit's Anderson iteration find one, galerkit's fixed point the other (L2 errors 9 % apart).
   The same for S-BBK on the tensor-layer mesh of Example 5 (6e-4 apart).
-- **Known problem, not fixed:** F-BBK and S-BBK with the fixed point iteration on the Shishkin "/" and
-  crossed meshes of Example 3 (eps = 1e-8, every n tested) blow up to NaN: after the first step the
-  full update raises the residual (0.09 to 358), the dynamic damping reaches its minimum 0.01 and
-  then accepts the step although the residual still grows, and every later step multiplies the
-  residual by about 85. galerkit's fixed point (no damping) stays bounded (not converged, residual
-  about 1e-2). The runs are recorded as not converged with residual NaN (`res -nan` in the log;
-  runs of earlier versions recorded 0 iterations: recompute them with `--redo`). A fix belongs in
-  the damping of `ConvectionDiffusion_AFC` (reject a step at the minimal damping when the residual
-  grows) and changes the fixed point results of all methods.
+- **F-BBK, S-BBK with the fixed point iteration on the Shishkin meshes of Example 3** (eps = 1e-8):
+  after the first step the full update raises the residual (0.09 to 358); the dynamic damping
+  (John & Knobloch 2008) reaches its minimum `afc_nonlinloop_damping_factor_min` = 0.01 and then
+  accepts the step although the residual grows, and every later step multiplies the residual by
+  about 85, until it overflows. Earlier versions returned this last iterate (NaN). Now the fixed
+  point iteration stops when the residual is not finite and, whenever it ends without converging,
+  returns the iterate with the smallest residual (as galerkit); the log line ends with
+  `(best iterate; last residual ...)` and `(stopped: residual not finite)`. Converged runs are
+  unchanged (regression 18 of 18). These runs now stop after about 85 iterations with residual
+  0.01 ... 0.17 (galerkit: 3000 iterations, 0.003 ... 0.05; not converged in either code).
+  galerkit's fixed point halves the damping factor down to 1e-4: with
+  `afc_nonlinloop_damping_factor_min: 1e-4` ParMooN does not blow up either (n = 16, Shishkin "/":
+  3000 iterations, residual 0.051 for F-BBK and 0.021 for S-BBK, galerkit 0.047 and 0.033).
+  `run_study.py` keeps ParMooN's 0.01, which changes no other run; 1e-4 would change the fixed
+  point iteration of all methods. Recompute such runs of earlier versions with `--redo`.
 
 ## Troubleshooting
 

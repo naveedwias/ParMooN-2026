@@ -408,6 +408,14 @@ bool ConvectionDiffusion_AFC<d>::solve(const int iteration)
       dynamic_damping(iteration);
   }
 
+  // the best iterate so far (returned if the iteration does not converge)
+  const bool residual_finite = std::isfinite(residual);
+  if(residual_finite && (best_residual < 0. || residual < best_residual))
+  {
+    best_residual = residual;
+    best_solution = s.solution;
+  }
+
   old_solution.add_scaled(s.solution,-1.0);
 
   Output::print<2>("nonlinear step ", iteration, " residual: ", residual, 
@@ -429,13 +437,26 @@ bool ConvectionDiffusion_AFC<d>::solve(const int iteration)
                      time_total/(iteration+rejected_steps));
     return(true);
   }
-  //maximal number of iterations
-  if (iteration == (int)this->db["afc_nonlinloop_maxit"])
+  // maximal number of iterations, or a residual that is not finite (the
+  // iteration has blown up): stop and return the best iterate
+  if (iteration == (int)this->db["afc_nonlinloop_maxit"] || !residual_finite)
   {
     time_total = GetTime() - time_total;
+    const double last_residual = residual;
+    const bool use_best = best_residual >= 0.
+                          && (!residual_finite || best_residual < residual);
+    if(use_best)
+    {
+      s.solution = best_solution;
+      residual = best_residual;
+    }
     Output::print<1>("MAX_NONLINEAR ITERATION: ite ", iteration, " res ", 
                      residual, " rejections ", rejected_steps, " time ",
-                     time_total, " t/it ", time_total/(iteration+rejected_steps));
+                     time_total, " t/it ", time_total/(iteration+rejected_steps),
+                     use_best ? " (best iterate; last residual "
+                                + std::to_string(last_residual) + ")"
+                              : std::string(""),
+                     residual_finite ? "" : " (stopped: residual not finite)");
     return(true);
   }
   // storage of old solution

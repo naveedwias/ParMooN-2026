@@ -207,6 +207,13 @@ class ConvectionDiffusion_AFC : public ConvectionDiffusion<d>
      */
      double residual, residual_old; 
      BlockVector old_solution;
+     /**
+      * best_residual, best_solution: the iterate with the smallest finite
+      * residual so far; returned when the iteration stops without converging
+      * (maximal number of iterations, or a residual that is not finite)
+      */
+     double best_residual = -1.;
+     BlockVector best_solution;
      
      BlockVector initial_solution;
      FEFunction initial_fe_function;
