@@ -90,10 +90,11 @@ def rotating_inflow(x, xi=1e-3):
     return u
 
 
-def radial_reference(eps=1e-5, xi=1e-3, nr=40000, ntheta=4000, r_max=1.5):
+def radial_reference(eps=1e-5, xi=1e-3, nr=40000, ntheta=4000, r_max=1.5, last_only=False):
     """Example 5: u_theta = eps (u_rr + u_r / r), theta in [0, pi/2], u(r, 0) = inflow profile;
     finite volumes in r (u_r = 0 at r = 0 and r_max), two implicit Euler steps, then Crank-Nicolson
-    (as galerkit problems.rotating_profile_reference). Returns r, theta, U[ntheta+1, nr+1]."""
+    (as galerkit problems.rotating_profile_reference). Returns r, theta, U[ntheta+1, nr+1];
+    last_only: r and the profile at theta = pi/2 (the outlet x = 0), without storing U (1.3 GB)."""
     import scipy.sparse as sp
     from scipy.sparse.linalg import splu
     r = np.linspace(0.0, r_max, nr + 1)
@@ -110,11 +111,16 @@ def radial_reference(eps=1e-5, xi=1e-3, nr=40000, ntheta=4000, r_max=1.5):
     lo[0] = 0.0
     L = sp.diags([lo[1:], -(up + lo), up[:-1]], [-1, 0, 1], format="csc")
     Id = sp.identity(nr + 1, format="csc")
-    U = np.empty((ntheta + 1, nr + 1))
-    U[0] = rotating_inflow(r, xi)
     be = splu((Id - k * eps * L).tocsc())
     cn_l = splu((Id - 0.5 * k * eps * L).tocsc())
     cn_r = (Id + 0.5 * k * eps * L).tocsr()
+    if last_only:
+        u = rotating_inflow(r, xi)
+        for j in range(ntheta):
+            u = be.solve(u) if j < 2 else cn_l.solve(cn_r @ u)
+        return r, u
+    U = np.empty((ntheta + 1, nr + 1))
+    U[0] = rotating_inflow(r, xi)
     for j in range(ntheta):
         U[j + 1] = be.solve(U[j]) if j < 2 else cn_l.solve(cn_r @ U[j])
     return r, th, U

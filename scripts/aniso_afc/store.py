@@ -20,6 +20,7 @@ import glob
 import io
 import json
 import os
+import warnings
 import zipfile
 
 import numpy as np
@@ -101,7 +102,8 @@ class RunStore:
         if solution is not None:
             mkey, P, u = solution
             path = os.path.join(d, f"{prefix}_solutions.npz")
-            with zipfile.ZipFile(path, "a", zipfile.ZIP_DEFLATED) as z:
+            with warnings.catch_warnings(), zipfile.ZipFile(path, "a", zipfile.ZIP_DEFLATED) as z:
+                warnings.simplefilter("ignore", UserWarning)  # "Duplicate name": a repeated run, see below
                 names = set(z.namelist())
                 for key, arr in ((mkey, P), (rec["run"], u)):
                     if key + ".npy" in names:

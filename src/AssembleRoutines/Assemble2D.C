@@ -2904,12 +2904,32 @@ void Assemble2D(int n_fespaces, const TFESpace2D** fespaces, int n_sqmatrices,
       if (N_Edges==3)
         TDatabase::ParamDB->INTERNAL_VERTEX_X[3] = -4711;
       TDatabase::ParamDB->INTERNAL_HK_CONVECTION = -1;
+      if(TDatabase::ParamDB->SUPG_DELTA_CELLWISE && la.GetCoeffFct())
+      {
+        // delta_K per cell: the convection at the barycentre (coefficients
+        // that depend on parameter functions get zeros for them)
+        double xb = 0., yb = 0.;
+        for(int ij = 0; ij < N_Edges; ij++)
+        {
+          xb += cell->GetVertex(ij)->GetX() / N_Edges;
+          yb += cell->GetVertex(ij)->GetY() / N_Edges;
+        }
+        std::vector<double> cb(64, 0.), pb(64, 0.);
+        double *cbp = cb.data();
+        const double *pbp = pb.data();
+        la.GetCoeffFct()(1, &xb, &yb, &pbp, &cbp);
+        TDatabase::ParamDB->INTERNAL_CELL_B[0] = cb[1];
+        TDatabase::ParamDB->INTERNAL_CELL_B[1] = cb[2];
+        TDatabase::ParamDB->INTERNAL_CELL_B[2] = 0.;
+        TDatabase::ParamDB->INTERNAL_CELL_B_VALID = 1;
+      }
     }
     FEDatabase::GetOrig(LocalUsedElements, Coll, cell, SecondDer, qf_ref,
                         qf_orig);
     
     la.GetLocalForms(qf_orig, LocBF, cell, i, N_AllMatrices, n_rhs, LocMatrices,
                      LocRhs);
+    TDatabase::ParamDB->INTERNAL_CELL_B_VALID = 0;
 
     int N_Joints = cell->GetN_Joints();
     // ####################################################################

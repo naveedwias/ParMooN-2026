@@ -237,6 +237,7 @@ void TParamDB::read_parameters(const char* ParamFile)
     if(SetParameters(line, "DELTA1:", DELTA1)){N_Param++; continue;}
     if(SetParameters(line, "DELTA0:", DELTA0)){N_Param++; continue;}
     if(SetParameters(line, "SDFEM_TYPE:", SDFEM_TYPE)){N_Param++; continue;}
+    if(SetParameters(line, "SUPG_DELTA_CELLWISE:", SUPG_DELTA_CELLWISE)){N_Param++; continue;}
     if(SetParameters(line, "FILTER_WIDTH_CONSTANT:", FILTER_WIDTH_CONSTANT)){N_Param++; continue;}
     if(SetParameters(line, "FILTER_WIDTH_POWER:", FILTER_WIDTH_POWER)){N_Param++; continue;}
     if(SetParameters(line, "GAUSSIAN_GAMMA:", GAUSSIAN_GAMMA)){N_Param++; continue;}
@@ -648,6 +649,8 @@ void TDatabase::SetDefaultParameters()
   ParamDB->DELTA0=1.0;
   ParamDB->DELTA1=1.0;
   ParamDB->SDFEM_TYPE=2;
+  ParamDB->SUPG_DELTA_CELLWISE = 0;
+  ParamDB->INTERNAL_CELL_B_VALID = 0;
   ParamDB->CIP_TYPE=0;
 
   ParamDB->FILTER_WIDTH_CONSTANT = 2;
@@ -871,6 +874,7 @@ void TDatabase::WriteParamDB(char *ExecutedFile)
   printToFile("PE_NR: ", ParamDB->PE_NR);  
   printToFile("DELTA0: ", ParamDB->DELTA0);
   printToFile("SDFEM_TYPE: ", ParamDB->SDFEM_TYPE);
+  printToFile("SUPG_DELTA_CELLWISE: ", ParamDB->SUPG_DELTA_CELLWISE);
   printToFile("DELTA1: ", ParamDB->DELTA1);
   printToFile("CIP_TYPE: ", ParamDB->CIP_TYPE);
 

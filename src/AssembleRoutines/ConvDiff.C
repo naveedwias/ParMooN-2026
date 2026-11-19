@@ -281,6 +281,12 @@ double Compute_SDFEM_delta(double hK, double eps,
   if(std::abs(eps)<1e-20)
     eps = 1e-20;
 
+  // SUPG_DELTA_CELLWISE: one delta per cell, with the convection at the
+  // barycentre (set by Assemble2D for the current cell)
+  if(TDatabase::ParamDB->INTERNAL_CELL_B_VALID)
+    for(int k = 0; k < d; k++)
+      convection[k] = TDatabase::ParamDB->INTERNAL_CELL_B[k];
+
   // compute cell diameter in convection direction
 
   if(TDatabase::ParamDB->CELL_MEASURE==4)

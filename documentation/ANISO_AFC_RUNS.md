@@ -95,6 +95,7 @@ names, ready to replace the files in the paper's `tables/` folder:
 | `aniso_interior.tex`, `aniso_rotating.tex` | Examples 4 and 5 |
 | `aniso_errors.pdf` | L2 errors against the number of nodes (PDF instead of the paper's PNG) |
 | `rotating_solutions_n64.png` | Example 5, n = 64: the four meshes and the solutions of Galerkin, SUPG, Kuzmin, MUAS, BBK (min, max in brackets); `rotating_figure.py`, see below |
+| `rotating_outlet_<mesh>_n64.png` | Example 5, n = 64: outlet profiles of the ten methods and their variants against the reference, one figure per mesh; `rotating_figure.py` |
 
 **`cd_aniso/`: the runs** (raw data, not needed for the paper): one folder per example with
 four files, e.g. for Example 1:
@@ -141,30 +142,54 @@ rm -f cd_aniso/cd_aniso_*                                                # inter
 
 The paper tables of converted runs are byte-identical to those of the old layout.
 
-## Example 5: meshes and solutions (`rotating_solutions_n64`)
+## Example 5: meshes, solutions and outlet profiles (`rotating_figure.py`)
 
 ```bash
-python3 ../ParMooN-2026/scripts/aniso_afc/rotating_figure.py --run --jobs $J   # the runs it needs, then the figure
-python3 ../ParMooN-2026/scripts/aniso_afc/rotating_figure.py                   # only the figure, from existing runs
+python3 ../ParMooN-2026/scripts/aniso_afc/rotating_figure.py --run --jobs $J   # the runs it needs, then the figures
+python3 ../ParMooN-2026/scripts/aniso_afc/rotating_figure.py                   # only the figures, from existing runs
 ```
 
-Writes `paper_results/rotating_solutions_n64.png` (layout of galerkit's figure: one row per
-mesh, the mesh and the solutions of Galerkin, SUPG, Kuzmin, MUAS, BBK, colour scale [-0.1, 1.1],
-min and max of u_h in the titles) and, in `rotating_vtk/`, one VTK file per mesh
-(`rotating_n64_<mesh>.vtk`: the mesh and the point data `u_Galerkin`, `u_SUPG`, `u_Kuzmin`,
-`u_MUAS`, `u_BBK`) and `rotating_solutions_n64.md` (the run, solver, iterations, residual, min and
-max of every panel). The solver of an algebraic method is chosen as in galerkit: the first of
-`fp_anderson_safe`, `newton_cont`, `fixed_point` that converged (`--solver` fixes one). `--run`
+Writes, in the layout of galerkit's `rotating_profile.py`:
+
+- `paper_results/rotating_solutions_n64.png`: one row per mesh, the mesh and the solutions of
+  Galerkin, SUPG, Kuzmin, MUAS, BBK, colour scale [-0.1, 1.1], min and max of u_h in the titles;
+- `paper_results/rotating_outlet_<mesh>_n64.png` (four): the outlet profile u_h(0, y) of the ten
+  methods against the reference, with the variants "limiter off along layers" (`loff`, aspect
+  threshold 3, on the three refined meshes) and "relaxed, mu = 2" (BJK, Kuzmin, MUAS, SMUAS);
+- in `rotating_vtk/`: one VTK file per mesh (`rotating_n64_<mesh>.vtk`: the mesh and every
+  solution as point data, `u_Galerkin`, `u_SUPG`, `u_Kuzmin`, ..., `u_<method>_loff`,
+  `u_<method>_mu2`), `rotating_solutions_n64.md` (run, solver, iterations, residual, min, max of
+  every panel) and `rotating_outlet_n64.md` (maximal and L1 error of every outlet profile).
+
+The solver of an algebraic method is chosen as in galerkit: the first of `fp_anderson_safe`,
+`newton_cont`, `fixed_point` that solves the scheme, i.e. the Euclidean residual of the scheme
+without regularization is <= 1e-8 at its solution; otherwise the run with the smallest such
+residual (`--solver` fixes one). For Newton with continuation this residual is `residual0` of the
+run (`res0` in ParMooN's log): when the continuation stops before sigma = 0, the run returns the
+solution of the last regularized stage, and its `res` is that of the regularized scheme. `--run`
 computes only the missing runs, in that order, each solver only where the earlier ones did not
-converge; the runs of step 10 are used if they exist. `--paper` also writes the PNG (not the
-VTK files) when the runs exist. Options: `--n`, `--variant loff|mu2`, `--figdir`, `--vtkdir`,
-`--outdir`.
+solve the scheme; the runs of step 10 are used if they exist. `--paper` also writes the PNGs (not
+the VTK files) when the runs exist. Options: `--figures solutions outlet`, `--n`,
+`--variant loff|mu2` (solution figure), `--figdir`, `--vtkdir`, `--outdir`.
+
+**Runs of earlier versions** of Example 5 must be recomputed for two reasons: SUPG now uses one
+parameter per cell (`SUPG_DELTA_CELLWISE`, see the parameter reference), and Newton runs now record
+`residual0`. `run_study.py --redo` recomputes the selected runs even if they are finished:
+
+```bash
+M="--cases 5:1e-5 --n 32 64 --meshes uniform polar polar_layer tensor_layer"
+python3 $S --redo --jobs $J $M --methods supg
+for v in plain loff mu2; do python3 $S --redo --jobs $J $M --variants $v --solver newton_cont; done
+```
+
+The layer switch of Example 5 (`loff`) now uses the aspect threshold 3 on every mesh, as galerkit
+(before: 10 on the uniform and the tensor-layer mesh): recompute the `loff` runs on the tensor-layer
+mesh of earlier versions with `--redo --meshes tensor_layer --variants loff` for each solver.
 
 ## Not yet produced
 
-- Six figures of the paper: `aniso_meshes`, `aniso_iterations`, `interior_cut_shishkin_n64`,
-  `interior_errors`, `rotating_outlet_polar_layer_n64`, `rotating_errors` (the data are in the
-  run folders).
+- Five figures of the paper: `aniso_meshes`, `aniso_iterations`, `interior_cut_shishkin_n64`,
+  `interior_errors`, `rotating_errors` (the data are in the run folders).
 - In the tables: the wall times of `aniso_newton_reg` (recorded as `wall_time`), the column
   max u_h of Kuzmin for Example 3 in `aniso_layermesh_acc`, and the rows with mu = 2 in
   `aniso_rotating` (the runs are done).
@@ -207,7 +232,7 @@ Parameters of `AlgebraicStabilization` (default in brackets):
 | `algstab_method` (`none`) | `bjk`, `kuzmin_edge`, `mc`, `muas`, `smuas`, `bbk`, `fbbk`, `sbbk`; needs `algebraic_flux_correction: afc`, `afc_iteration_scheme: fixed_point_rhs`, `afc_initial_iterate: afc_zero` |
 | `algstab_solver` (`fixed_point`) | `fixed_point`, `fp_anderson`, `fp_anderson_safe`, `newton`, `newton_cont` |
 | `algstab_resolved_off` (false), `algstab_pe_threshold` (1) | stabilization off where \|b(x_E)\| \|E\| / (2 eps) <= threshold |
-| `algstab_layer_off` (false), `algstab_aspect_threshold` (10) | off along the layers (long edges of cells with aspect ratio >= threshold; 3 on polar meshes) |
+| `algstab_layer_off` (false), `algstab_aspect_threshold` (10) | off along the layers (long edges of cells with aspect ratio >= threshold; 3 in Example 5, as galerkit's rotating_profile.py) |
 | `algstab_q_relax` (1) | relaxed limiters, mu |
 | `algstab_anderson_depth` (10), `algstab_anderson_window` (10), `algstab_restart` (200), `algstab_omega_min` (1e-4) | Anderson acceleration and its safeguard |
 | `algstab_reg` (1e-6), `algstab_newton_maxit` (40), `algstab_fd_step` (1e-10) | Newton continuation: target sigma, iterations per stage, finite-difference step |
@@ -218,7 +243,12 @@ Parameters of `AlgebraicStabilization` (default in brackets):
 
 SUPG in the study uses `space_discretization_type: supg`, `SDFEM_TYPE: 2`, `CELL_MEASURE: 4`
 (the coth formula with the cell size in the direction of b; ParMooN's default uses the cell
-diameter and gives errors of order 1 on the Shishkin meshes).
+diameter and gives errors of order 1 on the Shishkin meshes) and `SUPG_DELTA_CELLWISE: 1`: one
+parameter per cell, with b at the barycentre for |b| and for the cell size, as galerkit
+(`tau_K` from b at the centroid). ParMooN's default (0) evaluates the parameter at every
+quadrature point with the local b, but the cell size with b at the first quadrature point. Both
+agree for constant b (Examples 1-4); for Example 5 (b = (-y, x)) the default differs from
+galerkit by up to 2e-4, `SUPG_DELTA_CELLWISE: 1` agrees to 1e-14.
 
 ## Findings for the paper
 

@@ -1192,12 +1192,18 @@ void ConvectionDiffusion_AFC<d>::solve_algstab_newton()
   }
   for(int i = 0; i < N; ++i)
     s.solution[i] = u[i];
+  // the residual of the original scheme (sigma = 0) at the returned solution: res is that of
+  // the last regularized stage when the continuation stops before sigma = 0
+  algstab->set_reg(0.);
+  std::vector<double> r0;
+  residual(u, r0);
+  const double res0 = norm(r0);
   Output::print<1>(converged ? "" : "MAX_", "NONLINEAR ITERATION: ite ", it_total,
                    " res ", res_final, " rejections ", rej_total, " time ",
                    GetTime() - t0, " restarts 0 (", this->db["algstab_solver"],
                    ", colours ", n_colors, cont ? ", stages" + stages : std::string(""),
                    cont ? (polished ? ", polished" : ", reg_final " + std::to_string(reg_final))
-                        : std::string(""), ")");
+                        : std::string(""), ", res0 ", res0, ")");
 }
 
 template<int d>

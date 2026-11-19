@@ -44,8 +44,10 @@ the criterion |r|_2 <= tol of the paper use tol / sqrt(N) (`run_study.py` does).
 - `measures.py`: errors, reference solutions (erfc; radial heat equation), DMP certificate,
   local DMP, Laplace > 0 edges.
 - `run_study.py`: the study (runs, LaTeX tables, figure; `--paper`); see its docstring.
-- `rotating_figure.py`: Example 5 at n = 64, the four meshes and the solutions of Galerkin, SUPG,
-  Kuzmin, MUAS, BBK (PNG as in the paper, and VTK files); `--run` computes the missing runs.
+- `rotating_figure.py`: Example 5 at n = 64, the figures of the paper as galerkit draws them: the
+  four meshes and the solutions of Galerkin, SUPG, Kuzmin, MUAS, BBK, and the outlet profiles of
+  the ten methods with their variants (PNG), and the solutions as VTK files; `--run` computes the
+  missing runs.
 - `store.py`: storage of the runs, one folder per example: `<prefix>_runs.jsonl` (one line per
   run), `_runs.csv`, `_failed.log`, `_solutions.npz`.
 - `convert_runs.py`: runs of earlier versions (one folder per run) into this layout.
@@ -55,7 +57,8 @@ the criterion |r|_2 <= tol of the paper use tol / sqrt(N) (`run_study.py` does).
 ## Verification (with galerkit, branch feature/anisotropic-afc)
 
 - Galerkin: equal to round-off on uniform, Shishkin, crossed and polar meshes (Examples 1, 3,
-  4, 5, 28); SUPG with `SDFEM_TYPE 2`, `CELL_MEASURE 4`: 1e-12.
+  4, 5, 28); SUPG with `SDFEM_TYPE 2`, `CELL_MEASURE 4`, `SUPG_DELTA_CELLWISE 1`: 1e-12
+  (Example 5 with variable b: 1e-14; without `SUPG_DELTA_CELLWISE` up to 2e-4).
 - b_ij(u) of all eight methods: equal to round-off (fbbk: 1e-11 ... 2e-9 relative, the
   accuracy of the weight QP) for random u and the solution, also with the switches, mu = 2,
   and at Neumann nodes (Example 5).

@@ -58,6 +58,10 @@ typedef struct TParamDB
 
   /** SUPG or SDFEM method */
   int    SDFEM_TYPE;
+  // 1: the SUPG parameter delta_K is one value per cell, computed with the
+  // convection at the barycentre (|b| and, for CELL_MEASURE 4, the cell size
+  // in the direction of b); 0 (default): b at every quadrature point (2D only)
+  int    SUPG_DELTA_CELLWISE;
   double DELTA0;
   double DELTA1;
   int    CIP_TYPE;
@@ -214,6 +218,10 @@ typedef struct TParamDB
   double INTERNAL_VERTEX_Y[8];
   double INTERNAL_VERTEX_Z[8];
   double INTERNAL_HK_CONVECTION;
+  // convection at the barycentre of the current cell (SUPG_DELTA_CELLWISE);
+  // used by Compute_SDFEM_delta while INTERNAL_CELL_B_VALID is 1
+  double INTERNAL_CELL_B[3];
+  int    INTERNAL_CELL_B_VALID;
   int    INTERNAL_MOMENT;
   
   double INTERNAL_COERCIVITY;

@@ -17,7 +17,7 @@ lexicographically smaller node), MC, MUAS, SMUAS (67), BBK, F-BBK, S-BBK.
 SUPG: SDFEM_TYPE 2, CELL_MEASURE 4 (coth formula with the cell size in the
 direction of b; agrees with galerkit's SUPG to 1e-12).
 Variants: plain, roff (stabilization off where Pe_E <= 1), loff (off along the
-layers, kappa = 10, polar meshes 3), mu2 (relaxed limiters, mu = 2).
+layers, kappa = 10, Example 5: 3), mu2 (relaxed limiters, mu = 2).
 
 Nonlinear solver: the fixed point iteration with updated right-hand side
 (A + D) u~ = g + (D - B(u)) u with ParMooN's dynamic damping, started from the
@@ -211,7 +211,7 @@ def _run_job(job, pre, key, base, rdir):
         return pre, dict(base, failed=True, reason=str(exc)), None, None
     geo = os.path.join(rdir, f"{pre}_mesh.GEO")
     write_unit_square_geo(P, T, geo, f"Example {ex}, {mesh}, n = {n}")
-    kappa = 3.0 if mesh.startswith("polar") else 10.0
+    kappa = 3.0 if ex == 5 else 10.0                 # Example 5: 3 on every mesh (as galerkit)
     txt = DAT.format(ex=ex, eps=eps, mesh=mesh, n=n, method=method, variant=variant, prefix=pre, geo=geo,
                      example=EXAMPLE[ex], disc="supg" if method == "supg" else "galerkin",
                      afc="none" if method in LINEAR else "afc", maxit=maxit,
@@ -222,7 +222,9 @@ def _run_job(job, pre, key, base, rdir):
                      loff=str(variant == "loff").lower(), roff=str(variant == "roff").lower(), kappa=kappa,
                      mu=2.0 if variant == "mu2" else 1.0, solver=solver, reg=1e-6, nc_maxit=40)
     if method == "supg":                              # coth formula with the cell size in the
-        txt += "SDFEM_TYPE: 2\nCELL_MEASURE: 4\n"       # direction of b (= galerkit's SUPG)
+        # direction of b, one delta per cell with b at the barycentre (= galerkit's SUPG; for
+        # constant b the same as per quadrature point, for Example 5 not)
+        txt += "SDFEM_TYPE: 2\nCELL_MEASURE: 4\nSUPG_DELTA_CELLWISE: 1\n"
     dat = os.path.join(rdir, f"{pre}_{key}.dat")
     open(dat, "w").write(txt)
     t0 = time.perf_counter()
@@ -250,6 +252,9 @@ def _run_job(job, pre, key, base, rdir):
                        rejections=int(it[-1][3]))
         else:
             rec.update(iterations=0, residual=float("nan"), converged=False)
+        r0 = re.findall(r"res0 ([0-9.eE+-]+|nan|inf)\)", logtxt)
+        if r0:                                        # Newton: residual of the scheme with sigma = 0
+            rec.update(residual0=float(r0[-1]))
         so = re.findall(r"\((\d+) switched off\)", logtxt)
         rec.update(n_switched_off=int(so[-1]) if so else 0)
         if not rec["converged"]:
@@ -482,17 +487,22 @@ def paper_report(outdir, paper_dir, methods):
             print(f"  {paper_name}")
         else:
             missing.append((paper_name, step))
-    # Example 5: meshes and solutions at n = 64 (rotating_figure.py; the VTK files with its own call)
+    # Example 5 at n = 64: meshes and solutions, outlet profiles (rotating_figure.py; the VTK files
+    # and the summaries with its own call)
     try:
-        from rotating_figure import make_figure
-        png = make_figure(outdir, paper_dir, vtkdir=None, quiet=True)
+        from rotating_figure import MESHES as ROT_MESHES, make_figure, make_outlet_figures
+        pngs = [make_figure(outdir, paper_dir, vtkdir=None, quiet=True)]
+        pngs += make_outlet_figures(outdir, paper_dir, mddir=None, quiet=True)
+        pngs = {os.path.basename(p) for p in pngs if p}
+        expected = ["rotating_solutions_n64.png"] + [f"rotating_outlet_{m}_n64.png" for m in ROT_MESHES]
     except Exception as exc:                          # figures are optional
-        png = None
-        print(f"  rotating_solutions_n64.png: {exc}")
-    if png:
-        print(f"  {os.path.basename(png)}")
-    else:
-        missing.append(("rotating_solutions_n64.png", "step 10, or rotating_figure.py --run"))
+        print(f"  Example 5 figures: {exc}")
+        pngs, expected = set(), []
+    for name in expected:
+        if name in pngs:
+            print(f"  {name}")
+        else:
+            missing.append((name, "step 10, or rotating_figure.py --run"))
     for paper_name, step in missing:
         print(f"  missing: {paper_name} (no runs yet: {step} of documentation/ANISO_AFC_RUNS.md)")
     shutil.rmtree(tmp, ignore_errors=True)
@@ -520,6 +530,9 @@ def main():
                     help="keep the nodal values in <prefix>_solutions.npz: auto (Examples 4, 5: their figures), "
                          "all, none")
     ap.add_argument("--retry-failed", action="store_true", help="repeat the runs that failed (default: skipped)")
+    ap.add_argument("--redo", action="store_true",
+                    help="recompute the selected runs even if finished (the new record and solution count; "
+                         "e.g. the SUPG runs of Example 5 after SUPG_DELTA_CELLWISE)")
     ap.add_argument("--paper", metavar="DIR", help="no runs: all tables and the figure of the paper from the "
                     "existing runs, under the paper's file names in DIR (e.g. --paper paper_results)")
     args = ap.parse_args()
@@ -552,7 +565,7 @@ def main():
                             if meth in LINEAR and var != "plain":
                                 continue
                             key = run_key_of(eps, m, n, meth, var, args.solver)
-                            if (naming.prefix("cd", EXAMPLE[ex]), key) in done:
+                            if not args.redo and (naming.prefix("cd", EXAMPLE[ex]), key) in done:
                                 skipped += 1
                                 continue
                             jobs.append((exe, outdir, ex, eps, m, n, meth, var, args.maxit, args.tol, args.solver,
