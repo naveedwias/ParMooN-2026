@@ -44,6 +44,8 @@ the criterion |r|_2 <= tol of the paper use tol / sqrt(N) (`run_study.py` does).
 - `measures.py`: errors, reference solutions (erfc; radial heat equation), DMP certificate,
   local DMP, Laplace > 0 edges.
 - `run_study.py`: the study (runs, LaTeX tables, figure; `--paper`); see its docstring.
+- `rotating_figure.py`: Example 5 at n = 64, the four meshes and the solutions of Galerkin, SUPG,
+  Kuzmin, MUAS, BBK (PNG as in the paper, and VTK files); `--run` computes the missing runs.
 - `store.py`: storage of the runs, one folder per example: `<prefix>_runs.jsonl` (one line per
   run), `_runs.csv`, `_failed.log`, `_solutions.npz`.
 - `convert_runs.py`: runs of earlier versions (one folder per run) into this layout.

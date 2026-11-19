@@ -482,6 +482,17 @@ def paper_report(outdir, paper_dir, methods):
             print(f"  {paper_name}")
         else:
             missing.append((paper_name, step))
+    # Example 5: meshes and solutions at n = 64 (rotating_figure.py; the VTK files with its own call)
+    try:
+        from rotating_figure import make_figure
+        png = make_figure(outdir, paper_dir, vtkdir=None, quiet=True)
+    except Exception as exc:                          # figures are optional
+        png = None
+        print(f"  rotating_solutions_n64.png: {exc}")
+    if png:
+        print(f"  {os.path.basename(png)}")
+    else:
+        missing.append(("rotating_solutions_n64.png", "step 10, or rotating_figure.py --run"))
     for paper_name, step in missing:
         print(f"  missing: {paper_name} (no runs yet: {step} of documentation/ANISO_AFC_RUNS.md)")
     shutil.rmtree(tmp, ignore_errors=True)

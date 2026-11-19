@@ -94,6 +94,7 @@ names, ready to replace the files in the paper's `tables/` folder:
 | `aniso_anderson.tex`, `aniso_newton_all.tex`, `aniso_newton_reg.tex` | nonlinear solvers |
 | `aniso_interior.tex`, `aniso_rotating.tex` | Examples 4 and 5 |
 | `aniso_errors.pdf` | L2 errors against the number of nodes (PDF instead of the paper's PNG) |
+| `rotating_solutions_n64.png` | Example 5, n = 64: the four meshes and the solutions of Galerkin, SUPG, Kuzmin, MUAS, BBK (min, max in brackets); `rotating_figure.py`, see below |
 
 **`cd_aniso/`: the runs** (raw data, not needed for the paper): one folder per example with
 four files, e.g. for Example 1:
@@ -140,11 +141,30 @@ rm -f cd_aniso/cd_aniso_*                                                # inter
 
 The paper tables of converted runs are byte-identical to those of the old layout.
 
+## Example 5: meshes and solutions (`rotating_solutions_n64`)
+
+```bash
+python3 ../ParMooN-2026/scripts/aniso_afc/rotating_figure.py --run --jobs $J   # the runs it needs, then the figure
+python3 ../ParMooN-2026/scripts/aniso_afc/rotating_figure.py                   # only the figure, from existing runs
+```
+
+Writes `paper_results/rotating_solutions_n64.png` (layout of galerkit's figure: one row per
+mesh, the mesh and the solutions of Galerkin, SUPG, Kuzmin, MUAS, BBK, colour scale [-0.1, 1.1],
+min and max of u_h in the titles) and, in `rotating_vtk/`, one VTK file per mesh
+(`rotating_n64_<mesh>.vtk`: the mesh and the point data `u_Galerkin`, `u_SUPG`, `u_Kuzmin`,
+`u_MUAS`, `u_BBK`) and `rotating_solutions_n64.md` (the run, solver, iterations, residual, min and
+max of every panel). The solver of an algebraic method is chosen as in galerkit: the first of
+`fp_anderson_safe`, `newton_cont`, `fixed_point` that converged (`--solver` fixes one). `--run`
+computes only the missing runs, in that order, each solver only where the earlier ones did not
+converge; the runs of step 10 are used if they exist. `--paper` also writes the PNG (not the
+VTK files) when the runs exist. Options: `--n`, `--variant loff|mu2`, `--figdir`, `--vtkdir`,
+`--outdir`.
+
 ## Not yet produced
 
-- Seven figures of the paper: `aniso_meshes`, `aniso_iterations`, `interior_cut_shishkin_n64`,
-  `interior_errors`, `rotating_outlet_polar_layer_n64`, `rotating_solutions_n64`,
-  `rotating_errors` (the data are in the run folders).
+- Six figures of the paper: `aniso_meshes`, `aniso_iterations`, `interior_cut_shishkin_n64`,
+  `interior_errors`, `rotating_outlet_polar_layer_n64`, `rotating_errors` (the data are in the
+  run folders).
 - In the tables: the wall times of `aniso_newton_reg` (recorded as `wall_time`), the column
   max u_h of Kuzmin for Example 3 in `aniso_layermesh_acc`, and the rows with mu = 2 in
   `aniso_rotating` (the runs are done).
