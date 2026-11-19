@@ -65,11 +65,52 @@ python3 $S --program tcd  --base $E/tcd2d_adaptive_tr_ex4.dat   --name fgjn_ex4 
 python3 $S --program tnse --base $E/tnse2d_adaptive_spg_ex2.dat --name tnse_ex2 --outdir adaptive
 ```
 
-This writes:
+This writes (with `<prefix>` = `<problem>_<example>`, `scripts/naming.py`):
 
-- `adaptive/<name>/meshes.pdf`, all meshes with their cell counts;
-- `adaptive/<name>_tables.pdf`, with effectivity, eta and error, number of cells and dt over time;
-- `adaptive/<name>_summary.txt`.
+- `adaptive/<prefix>_files/<run>/<prefix>_meshes.pdf`, all meshes with their cell counts;
+- `adaptive/<prefix>_<name>_tables.pdf`, with effectivity, eta and error, number of cells and dt over time;
+- `adaptive/<prefix>_<name>_summary.txt`.
+
+### Where the scripts keep the runs
+
+`transient_study.py` and `spg_study.py` collect the runs per example folder in a few files
+(`scripts/run_store.py`, the layout of the anisotropic AFC study) instead of one folder per run:
+
+| file | content |
+|---|---|
+| `<prefix>_runs.jsonl` | one line per run: the run key (`<name>_<key1>-<value1>_...`; steady: `<study>_P<k>P<l>_nu<nu>`), the parameters, the input file, the table the program wrote, wall time, status; a repeated run counts with its last line |
+| `<prefix>_runs.csv` | the same without input and table, one row per run (spreadsheet) |
+| `<prefix>_failed.log` | ParMooN log of every failed run (last 2000 lines) |
+| `<prefix>_files/<run>/` | the graphical output of a run: `mesh_t*.ps`, `vtk/*.vtk`, and figures drawn from them (`<prefix>_meshes.pdf`, `tgv_plots.py`) |
+| `<prefix>_<study>_tables.csv` | steady studies: the per-level tables of all runs of a study |
+
+Every run works in a temporary folder (`.scratch`, removed afterwards); `<input name>.out`, the
+stdout log of a successful run and the input file as a file are not kept (the input is in the
+record). Finished runs are skipped; `--redo` (or `--force`) recomputes them, `--retry-failed`
+repeats failed ones. A lock (`.lock`) stops a second run step in the same folder (a lock of a
+process that no longer exists is taken over). `--dry-run` writes the input files into
+`<prefix>_dry_run/`.
+
+Read a table or an input file of a run:
+
+```bash
+python3 -c "import json; [print(r['table']) for r in map(json.loads, open('tnse_taylor_green/tnse_taylor_green_runs.jsonl')) if r['run'] == 'ref_reynolds_number-100.0']"
+```
+
+Field plots of a Taylor-Green run: `python3 ../ParMooN-2026/scripts/tgv_plots.py tnse_taylor_green
+--run <run key>` (into `<prefix>_files/<run>/`).
+
+**Run folders of earlier versions** are converted without recomputing (input file, table and
+graphical output; folders without a table become failed runs):
+
+```bash
+python3 ../ParMooN-2026/scripts/convert_ns_runs.py tnse_taylor_green oseen_aaj_smooth   # keeps the old folders
+python3 ../ParMooN-2026/scripts/convert_ns_runs.py --delete-old tnse_taylor_green        # then removes them
+```
+
+Checked: runs of the previous and the new scripts (steady Examples 4.1 and 5.2, Taylor-Green with
+two meshes) have identical tables, graphical output and study files (summaries, convergence
+tables); converted runs reproduce them with `--plot-only`, `spg_plot.py` and `tgv_plots.py`.
 
 A short test run first:
 

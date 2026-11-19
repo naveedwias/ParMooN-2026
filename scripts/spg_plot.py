@@ -5,10 +5,10 @@ studies of Afzal, Ahmed, John 2026) without rerunning anything.
 
 spg_study.py stores one folder per study, <outdir>/<prefix>/ with <prefix> =
 <problem>_<example> (scripts/naming.py: ex41 oseen_aaj_smooth, ex42
-oseen_aaj_layers, ex51 nse_aaj_smooth, ex52 nse_aaj_layers), and in it one
-folder per run, <prefix>_<study>_P<k>P<l>_nu<nu>/, with the per-level table
-<prefix>_table.txt. This script collects those tables and draws, per study,
-in the study folder,
+oseen_aaj_layers, ex51 nse_aaj_smooth, ex52 nse_aaj_layers), and in it the
+runs of the study in <prefix>_runs.jsonl (scripts/run_store.py; run keys
+<study>_P<k>P<l>_nu<nu>, each with its per-level table). This script collects
+those tables and draws, per study, in the study folder,
 
   <prefix>_<study>_error.pdf          error ||(u-u_h,p-p_h)||_spg vs DoFs, one panel per
                                       pair, with the O(h^k) reference line (uniform studies)
@@ -35,7 +35,8 @@ import sys
 import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from spg_study import study_prefix  # noqa: E402
+from spg_study import parse_table, study_prefix  # noqa: E402
+from run_store import RunStore  # noqa: E402
 
 COLUMNS = ["level", "cells", "dofs", "h", "error_spg", "eta", "eta_res",
            "eta_div", "eta_F", "eta_delta", "eta_mu", "effectivity",
@@ -64,20 +65,22 @@ def read_table(path):
 
 
 def collect(outdir, study):
-    """return {(pair, nu): rows} from the study folder <outdir>/<prefix>"""
+    """return {(pair, nu): rows} from the runs of the study in <outdir>/<prefix>/<prefix>_runs.jsonl"""
     results = {}
     pre = study_prefix(study)
-    pat = re.compile(rf"^{pre}_{study}_P(\d)P(\d)_nu([0-9.e+-]+)$")
-    for d in sorted(glob.glob(os.path.join(outdir, pre, f"{pre}_{study}_P*P*_nu*"))):
-        m = pat.match(os.path.basename(d))
-        table = os.path.join(d, f"{pre}_table.txt")
-        if not m or not os.path.exists(table):
+    pat = re.compile(rf"^{study}_P(\d)P(\d)_nu([0-9.e+-]+)$")
+    for key, rec in sorted(RunStore(os.path.join(outdir, pre), pre).records().items()):
+        m = pat.match(key)
+        if not m or rec.get("failed") or not rec.get("table"):
             continue
         pair = f"{m.group(1)}/{m.group(2)}"
         nu = float(m.group(3))
-        rows = read_table(table)
+        rows = parse_table(rec["table"])
         if rows:
             results[(pair, nu)] = rows
+    if not results and glob.glob(os.path.join(outdir, pre, f"{pre}_{study}_P*P*_nu*")):
+        print(f"  {study}: run folders of an earlier version in {os.path.join(outdir, pre)}; "
+              "convert them with scripts/convert_ns_runs.py")
     return results
 
 

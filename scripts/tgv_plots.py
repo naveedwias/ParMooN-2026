@@ -31,9 +31,14 @@ finite element solution itself (the errors in the table are computed by
 quadrature in the program).
 
 Usage:
-  python3 tgv_plots.py RUN_DIR [--out NAME] [--snapshots 0,mid,last] [--format pdf]
-RUN_DIR is a run directory of transient_study.py (table.txt, <name>.dat, vtk/)
-or the directory in which the program was run.
+  python3 tgv_plots.py FOLDER --run KEY [--out NAME] [--snapshots 0,mid,last] [--format pdf]
+  python3 tgv_plots.py RUN_DIR [--out NAME] ...
+FOLDER is the example folder of transient_study.py (e.g. tnse_taylor_green) and KEY
+a run key of its <prefix>_runs.jsonl (scripts/run_store.py; the input file and the
+table are taken from the record, the vtk files from <prefix>_files/KEY/; default
+<out> = <prefix>_files/KEY/<prefix>). RUN_DIR is a directory with the input file
+*.dat, the table and vtk/ (a run folder of an earlier version, or the directory in
+which the program was run).
 """
 import argparse
 import glob
@@ -47,6 +52,37 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import naming  # noqa: E402
+
+
+def parse_params(text):
+    prm = {}
+    for ln in text.splitlines():
+        m = re.match(r"^\s*([A-Za-z_0-9]+)\s*:\s*(.*?)\s*$", ln)
+        if m:
+            prm[m.group(1)] = m.group(2)
+    return prm
+
+
+def parse_table_text(text):
+    lines = [l for l in text.splitlines() if l.strip() and not l.startswith("# RESULTS")]
+    hdr = lines[0].lstrip("#").split()
+    data = np.array([[float(x) for x in l.split()] for l in lines[1:] if not l.startswith("#")])
+    return {h: data[:, i] for i, h in enumerate(hdr) if i < data.shape[1]}
+
+
+def load_stored_run(folder, key):
+    """parameters, table and vtk folder of a run of transient_study.py (run_store.py)"""
+    from run_store import RunStore
+    prefix = os.path.basename(os.path.normpath(folder))
+    store = RunStore(folder, prefix)
+    rec = store.get(key)
+    if rec is None:
+        keys = sorted(store.records())
+        raise SystemExit(f"no finished run {key} in {folder}/{prefix}_runs.jsonl"
+                         + (f"; runs: {', '.join(keys)}" if keys else ""))
+    prm = parse_params(rec["input"])
+    prm["_prefix"] = prefix
+    return prm, parse_table_text(rec["table"]), store.files_dir(key)
 
 
 def read_dat(run_dir):
@@ -153,7 +189,8 @@ def stream_function_p1(pts, tris, u, v, psi_boundary, is_bnd):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("run_dir")
+    ap.add_argument("run_dir", help="example folder (with --run) or run directory")
+    ap.add_argument("--run", default=None, help="run key in the example folder (transient_study.py)")
     ap.add_argument("--out", default=None,
                     help="prefix of the output files (default: RUN_DIR/<problem>_<example>)")
     ap.add_argument("--snapshots", default="0,mid,last",
@@ -165,15 +202,20 @@ def main():
     import matplotlib.pyplot as plt
     import matplotlib.tri as mtri
 
-    prm = read_dat(args.run_dir)
-    tab = read_table(args.run_dir, prm)
+    if args.run:
+        prm, tab, files_dir = load_stored_run(args.run_dir, args.run)
+    else:
+        prm = read_dat(args.run_dir)
+        tab = read_table(args.run_dir, prm)
+        files_dir = args.run_dir
     nu = 1.0 / float(prm.get("reynolds_number", "100"))
     L = float(prm.get("tgv_length", 2 * math.pi))
     k = float(prm.get("tgv_wavenumber", 1.0))
     A = float(prm.get("tgv_amplitude", 1.0))
     t0 = float(prm.get("time_start", 0.0))
     dt_out = float(prm.get("adaptive_output_time", 0.1))
-    out = args.out or os.path.join(args.run_dir, prm["_prefix"])
+    out = args.out or os.path.join(files_dir, prm["_prefix"])
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     t = tab["time"]
     F2 = np.exp(-4 * nu * k * k * t)
 
@@ -252,7 +294,7 @@ def main():
         f.write(f"steps {len(t)}, cells {int(tab['cells'][0])} ... {int(tab['cells'][-1])}\n")
 
     # ---------------------------------------------------------------- fields
-    vdir = os.path.join(args.run_dir, prm.get("output_directory", "vtk"))
+    vdir = os.path.join(files_dir, prm.get("output_directory", "vtk"))
     base = prm.get("output_basename", "tgv")
     files = sorted(glob.glob(os.path.join(vdir, base + "*.vtk")),
                    key=lambda f: int(re.search(r"(\d+)\.vtk$", f).group(1)))

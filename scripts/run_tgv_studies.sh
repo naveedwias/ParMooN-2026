@@ -13,11 +13,13 @@
 #   bash ../ParMooN-2026/scripts/run_tgv_studies.sh        # all studies
 #   bash ../ParMooN-2026/scripts/run_tgv_studies.sh 2      # only study 2 (1 ... 4)
 #
-# Finished runs (with a table) are skipped, so the script can be restarted.
+# Finished runs are skipped, so the script can be restarted. The runs are
+# collected in tnse_taylor_green/tnse_taylor_green_runs.jsonl (scripts/run_store.py),
+# the vtk files of a run in tnse_taylor_green/tnse_taylor_green_files/<run>/.
 # Figures of a study: repeat its transient_study.py command with --plot-only.
 # Field plots (stream function, vorticity, errors) and the energy/dissipation
 # analysis of any run directory:
-#   python3 ../ParMooN-2026/scripts/tgv_plots.py tnse_taylor_green/<run folder>
+#   python3 ../ParMooN-2026/scripts/tgv_plots.py tnse_taylor_green --run <run key>
 #
 # Exact quantities (L = 2 pi, k = A = 1): E = pi^2 exp(-4 nu t),
 # Z = 2 pi^2 exp(-4 nu t), -dE/dt = 2 nu Z; omega in [-2F, 2F], psi in [-F, F].
@@ -30,7 +32,17 @@ B=$E/tnse2d_adaptive_spg_tgv.dat
 OUT=tnse_taylor_green     # <problem>_<example> (scripts/naming.py)
 ONLY=${1:-all}
 run() { [ "$ONLY" = "all" ] || [ "$ONLY" = "$1" ]; }
-plots() { for d in "$@"; do [ -f "$d/${OUT}_table.txt" ] && python3 $P "$d" || true; done; }
+# field plots of the finished runs whose keys match the patterns (quoted shell patterns)
+plots() {
+  for pat in "$@"; do
+    for key in $(python3 -c "import sys; sys.path.insert(0, '../ParMooN-2026/scripts')
+from fnmatch import fnmatch; from run_store import RunStore
+print(' '.join(k for k, r in sorted(RunStore('$OUT', '$OUT').records().items())
+               if fnmatch(k, '$pat') and not r.get('failed')))"); do
+      python3 $P $OUT --run "$key" || true
+    done
+  done
+}
 
 # -----------------------------------------------------------------------------
 # 1. Reference run: uniform level 4, nu = 1e-2, T = 10, adaptive time steps
@@ -41,7 +53,7 @@ if run 1; then
   python3 $S --program tnse --base $B --name ref --outdir $OUT \
       --set refinement_n_initial_steps=4 time_end=10.0 output_write_ps=false \
       --vary reynolds_number=100.0 --no-meshes
-  plots $OUT/${OUT}_ref_reynolds_number-100.0
+  plots "ref_reynolds_number-100.0"
 fi
 
 # -----------------------------------------------------------------------------
@@ -70,7 +82,7 @@ if run 3; then
         --set reynolds_number=$re refinement_n_initial_steps=4 time_end=10.0 \
               adaptive_output_time=2.0 output_write_ps=false \
         --vary spg_delta0/spg_mu0=0.0/0.0,0.0/0.5,0.5/0.0,0.5/0.5 --no-meshes
-    plots $OUT/${OUT}_small_nu_Re${re}_spg_delta0_spg_mu0-*
+    plots "small_nu_Re${re}_spg_delta0_spg_mu0-*"
   done
 fi
 

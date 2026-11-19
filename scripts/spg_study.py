@@ -23,18 +23,25 @@ Typical use (from the build directory):
 
 Names (scripts/naming.py): each study writes into <outdir>/<problem>_<example>/
 (ex41: oseen_aaj_smooth, ex42: oseen_aaj_layers, ex51: nse_aaj_smooth, ex52:
-nse_aaj_layers; --outdir defaults to the current folder), with run folders
-<prefix>_<study>_P<k>P<l>_nu<nu>/ containing <prefix>_table.txt, _table.csv,
-_stdout.log, <prefix>.out and the input file, and the study files
-<prefix>_<study>_error.pdf, ..., <prefix>_<study>_summary.txt.
+nse_aaj_layers; --outdir defaults to the current folder). The runs are collected
+per example in a few files (scripts/run_store.py): <prefix>_runs.jsonl (one line
+per run, key <study>_P<k>P<l>_nu<nu>: parameters, input file, per-level table,
+wall time, status), <prefix>_runs.csv, <prefix>_failed.log, and the graphical
+output of a run (--vtk, --ps) in <prefix>_files/<run>/. The study files are
+<prefix>_<study>_error.pdf, ..., <prefix>_<study>_summary.txt and
+<prefix>_<study>_tables.csv (the per-level tables of all runs of the study).
+Every run works in a temporary folder; only the tables and the graphical output
+are kept. Run folders of earlier versions: scripts/convert_ns_runs.py.
 
-Runs whose table file already exists in the output directory are not repeated,
-so the script can be restarted and the plots regenerated with --plot-only.
+Finished runs are not repeated (unless --redo), failed ones only with
+--retry-failed, so the script can be restarted and the plots regenerated with
+--plot-only.
 """
 import sys as _sys
 import os as _os
 _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
 import naming  # noqa: E402
+from run_store import RunStore  # noqa: E402
 import math
 import argparse
 import csv
@@ -131,22 +138,30 @@ def expected_order(pair):
     return v + 0.5 if v == p else float(v)
 
 
-def read_table(path):
+def parse_table(text):
+    """the per-level table written by the program (spg_write_table)"""
     rows = []
-    with open(path) as f:
-        for line in f:
-            if not line.strip() or line.startswith("#"):
-                continue
-            vals = line.split()
-            rows.append({k: float(x) for k, x in zip(TABLE_COLUMNS, vals)})
+    for line in text.splitlines():
+        if not line.strip() or line.startswith("#"):
+            continue
+        vals = line.split()
+        rows.append({k: float(x) for k, x in zip(TABLE_COLUMNS, vals)})
     return rows
 
 
-def write_csv(path, rows):
+def read_table(path):
+    with open(path) as f:
+        return parse_table(f.read())
+
+
+def write_tables_csv(path, results):
+    """the per-level tables of all runs of a study, one row per level"""
     with open(path, "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=TABLE_COLUMNS)
-        w.writeheader()
-        w.writerows(rows)
+        w = csv.writer(f)
+        w.writerow(["pair", "nu"] + TABLE_COLUMNS)
+        for (pair, nu), rows in sorted(results.items()):
+            for r in rows:
+                w.writerow([pair, f"{nu:g}"] + [r.get(k, "") for k in TABLE_COLUMNS])
 
 
 # ---------------------------------------------------------------------------
@@ -163,21 +178,21 @@ def study_dir(args, study):
     return os.path.join(args.outdir, study_prefix(study))
 
 
-def run_dir(args, study, pair, nu):
-    pre = study_prefix(study)
-    return os.path.join(study_dir(args, study), f"{pre}_{run_name(study, pair, nu)}")
+def store_of(args, study):
+    return RunStore(study_dir(args, study), study_prefix(study))
 
 
-def run_one(args, study, pair, nu):
+def run_one(args, store, study, pair, nu):
     cfg = STUDIES[study]
     pre = study_prefix(study)
     name = run_name(study, pair, nu)
-    workdir = run_dir(args, study, pair, nu)
-    table = os.path.join(workdir, f"{pre}_table.txt")
-    if os.path.exists(table) and not args.force:
-        print(f"  {name}: table exists, skipping")
-        return read_table(table)
-    os.makedirs(workdir, exist_ok=True)
+    rec = store.records().get(name)
+    if rec is not None and not args.redo and not (rec.get("failed") and args.retry_failed):
+        if rec.get("failed"):
+            print(f"  {name}: failed before ({rec.get('reason')}), skipping (--retry-failed repeats it)")
+            return None
+        print(f"  {name}: finished, skipping")
+        return parse_table(rec["table"])
     v, p = pair.split("/")
     levels = args.levels if args.levels is not None else cfg["levels"]
     initial = args.initial if args.initial is not None else cfg["initial"]
@@ -189,32 +204,19 @@ def run_one(args, study, pair, nu):
         delta0=args.delta0, mu0=args.mu0, sigma0=cfg["sigma0"],
         table=f"{pre}_table.txt", vel=v, pres=p, reynolds=f"{1.0/nu:.6e}",
         ps="true" if (not cfg["uniform"] and args.ps) else "false")
-    dat_file = os.path.join(workdir, f"{pre}_{name}.dat")
-    with open(dat_file, "w") as f:
-        f.write(dat)
     exe = os.path.abspath(args.exe)
     print(f"  {name}: running ({pair_label(pair)}, nu = {nu:g}, {levels} levels, "
           f"initial refinement {initial}) ...",
           end="", flush=True)
-    t0 = time.time()
-    with open(os.path.join(workdir, f"{pre}_stdout.log"), "w") as log:
-        try:
-            subprocess.run([exe, f"{pre}_{name}.dat"], cwd=workdir, stdout=log,
-                           stderr=subprocess.STDOUT, check=True,
-                           timeout=args.timeout)
-        except subprocess.CalledProcessError as e:
-            print(f" FAILED (exit code {e.returncode}), see {log.name}")
-            return None
-        except subprocess.TimeoutExpired:
-            print(f" TIMEOUT after {args.timeout} s")
-            return None
-    print(f" done in {time.time()-t0:.0f} s")
-    if not os.path.exists(table):
-        print(f"    no table written, see {workdir}/{pre}_stdout.log")
+    rec = store.run(name, exe, f"{pre}_{name}.dat", dat, f"{pre}_table.txt", args.timeout,
+                    study=study, params=dict(pair=pair, nu=nu, levels=levels, initial=initial,
+                                             delta0=args.delta0, mu0=args.mu0),
+                    subdirs=("vtk",) if args.vtk else ())
+    if rec.get("failed"):
+        print(f" FAILED ({rec['reason']}), see {store.path('failed.log')}")
         return None
-    rows = read_table(table)
-    write_csv(os.path.join(workdir, f"{pre}_table.csv"), rows)
-    return rows
+    print(f" done in {rec['wall_time']:.0f} s")
+    return parse_table(rec["table"])
 
 
 def truncate_by_dofs(rows, max_dofs):
@@ -369,7 +371,9 @@ def main():
     ap.add_argument("--ps", action="store_true",
                     help="write PostScript files of the adaptive meshes")
     ap.add_argument("--format", default="pdf", choices=["pdf", "png"])
-    ap.add_argument("--force", action="store_true", help="rerun existing runs")
+    ap.add_argument("--redo", "--force", dest="redo", action="store_true",
+                    help="recompute finished runs (the new record counts)")
+    ap.add_argument("--retry-failed", action="store_true", help="repeat runs that failed before")
     ap.add_argument("--plot-only", action="store_true",
                     help="do not run anything, only plot existing tables")
     args = ap.parse_args()
@@ -378,22 +382,31 @@ def main():
         sys.exit(f"executable {args.exe} not found; use --exe")
     for study in args.study:
         os.makedirs(study_dir(args, study), exist_ok=True)
+        store = store_of(args, study)
         nus = args.nu if args.nu else DEFAULT_NU[study]
         print(f"== {STUDIES[study]['title']}")
         results = {}
-        for pair, nu in itertools.product(args.pairs, nus):
-            name = run_name(study, pair, nu)
-            table = os.path.join(run_dir(args, study, pair, nu),
-                                 f"{study_prefix(study)}_table.txt")
-            if args.plot_only:
-                rows = read_table(table) if os.path.exists(table) else None
-            else:
-                rows = run_one(args, study, pair, nu)
-            if rows:
-                if args.max_dofs:
-                    rows = truncate_by_dofs(rows, args.max_dofs)
-                results[(pair, nu)] = rows
+        if not args.plot_only:
+            store.lock()
+        try:
+            for pair, nu in itertools.product(args.pairs, nus):
+                name = run_name(study, pair, nu)
+                if args.plot_only:
+                    rec = store.get(name)
+                    rows = parse_table(rec["table"]) if rec else None
+                else:
+                    rows = run_one(args, store, study, pair, nu)
+                if rows:
+                    if args.max_dofs:
+                        rows = truncate_by_dofs(rows, args.max_dofs)
+                    results[(pair, nu)] = rows
+        finally:
+            if not args.plot_only:
+                store.unlock()
         if results:
+            out = os.path.join(study_dir(args, study), f"{study_prefix(study)}_{study}_tables.csv")
+            write_tables_csv(out, results)
+            print(f"  wrote {out}")
             plot_study(args, study, results)
         else:
             print("  no results")

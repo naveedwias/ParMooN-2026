@@ -22,8 +22,9 @@
 #   bash ../ParMooN-2026/scripts/run_tgv_bdf2_studies.sh        # all
 #   bash ../ParMooN-2026/scripts/run_tgv_bdf2_studies.sh 2      # only study 2 (1 ... 4)
 # Finished runs are skipped. Results in tnse_bdf2_taylor_green/ (folder and
-# files named <problem>_<example>, scripts/naming.py), run folders named by
-# the labels (e.g. tnse_bdf2_taylor_green_variants_Re1.0e6_SV-CIP-medium):
+# files named <problem>_<example>, scripts/naming.py), the runs collected in
+# tnse_bdf2_taylor_green_runs.jsonl (scripts/run_store.py) under keys named by
+# the labels (e.g. variants_Re1.0e6_SV-CIP-medium):
 # tnse_bdf2_taylor_green_<name>_results.txt (E_0, E_p, D, L2(u(T)), H1(u(T)),
 # max ||u_h||) and tnse_bdf2_taylor_green_<name>_tables.pdf (errors,
 # divergence and energy F_m over time; exact F_m = 4 pi^2 exp(-4 nu t)).

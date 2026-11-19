@@ -20,11 +20,15 @@ given as key=value1,value2,... Each combination of values becomes one run.
 
 Names (scripts/naming.py): the prefix is <problem>_<example>, e.g.
 tnse_taylor_green, from the program and the example number of the base file
-(or --set example=...). The output folder is <prefix>/ (or --outdir), the run
-folders are <prefix>_<name>_<key1>-<value1>_<key2>-<value2>/ with the files
-<prefix>_<name>_<...>.dat, <prefix>_table.txt, <prefix>_stdout.log,
-<prefix>.out, <prefix>_meshes.<format>, vtk/<prefix>_<i>.vtk (the PostScript
-meshes mesh_t*.ps keep their names), and the study files are
+(or --set example=...). The output folder is <prefix>/ (or --outdir). The runs
+are collected there in a few files (scripts/run_store.py): <prefix>_runs.jsonl
+(one line per run, key <name>_<key1>-<value1>_<key2>-<value2>: parameters,
+input file, the per-time table, wall time, status), <prefix>_runs.csv,
+<prefix>_failed.log, and the graphical output of a run in
+<prefix>_files/<run>/ (the PostScript meshes mesh_t*.ps, vtk/<prefix>_<i>.vtk,
+and <prefix>_meshes.<format> drawn from the meshes). Every run works in a
+temporary folder; only the table and the graphical output are kept. Run
+folders of earlier versions: scripts/convert_ns_runs.py. The study files are
 <prefix>_<name>_tables.<format>, _summary.txt, _convergence.txt, ... Only keys
 that appear in the base file (or are valid parameters of the program) should
 be given. The example must not be varied (one study, one example).
@@ -65,9 +69,10 @@ Examples
   # only plot existing results
   python3 transient_study.py --program tnse --name tnse_ex1 --plot-only
 
-The special key VELOCITY_SPACE/PRESSURE_SPACE sets both orders at once. Runs
-whose table file exists are skipped unless --force is given; --dry-run only
-writes the input files.
+The special key VELOCITY_SPACE/PRESSURE_SPACE sets both orders at once.
+Finished runs are skipped unless --redo is given (failed ones unless
+--retry-failed); a lock prevents two run steps in one folder; --dry-run only
+writes the input files (into <prefix>/<prefix>_dry_run/).
 
 Schemes of the BDF2-IMEX program (--program bdf2), as in the manuscript, set by
 labels instead of the individual parameters (--vary or --set):
@@ -94,6 +99,7 @@ import numpy as np
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import naming  # noqa: E402
+from run_store import RunStore  # noqa: E402
 
 PROGRAMS = {
     # adaptive SUPG for evolutionary convection-diffusion (de Frutos et al. 2014),
@@ -246,10 +252,15 @@ def apply_combo(lines, combo):
 # tables (both programs write a header line starting with '#')
 # ---------------------------------------------------------------------------
 def read_table(path):
+    with open(path) as f:
+        return parse_table(f.read())
+
+
+def parse_table(text):
     header = None
     rows = []
     results = None
-    for line in open(path):
+    for line in text.splitlines():
         if line.startswith("# RESULTS"):
             results = [float(x) for x in line.split()[2:]]
             continue
@@ -822,7 +833,9 @@ def main():
     ap.add_argument("--set", nargs="*", default=[], help="key=value fixed for all runs")
     ap.add_argument("--timeout", type=float, default=36000)
     ap.add_argument("--format", default="pdf", choices=["pdf", "png"])
-    ap.add_argument("--force", action="store_true")
+    ap.add_argument("--redo", "--force", dest="redo", action="store_true",
+                    help="recompute finished runs (the new record counts)")
+    ap.add_argument("--retry-failed", action="store_true", help="repeat runs that failed before")
     ap.add_argument("--dry-run", action="store_true")
     ap.add_argument("--plot-only", action="store_true")
     ap.add_argument("--no-meshes", action="store_true", help="do not draw the PostScript meshes")
@@ -868,64 +881,74 @@ def main():
               for vals in itertools.product(*[v for _, v in vary])] if vary else [[]]
     fixed = parse_vary(args.set)
 
+    store = RunStore(args.outdir, args.prefix)
     runs = []
     run_combos = []
-    for combo in combos:
-        name = run_name(args.name, combo)
-        run_dir = os.path.join(args.outdir, name)
-        table = os.path.join(run_dir, f"{args.prefix}_table.txt")
-        label = ", ".join(show(k, v)
-                          for k, v in combo) or args.name
-        if not args.plot_only:
-            if args.base is None:
-                sys.exit("--base is required unless --plot-only is given")
-            if os.path.exists(table) and not args.force:
-                print(f"{name}: table exists, skipping")
-            else:
-                os.makedirs(run_dir, exist_ok=True)
-                lines = read_dat(args.base)
-                lines = apply_combo(lines, expand_presets([(k, v[0]) for k, v in fixed], combo))
-                lines = set_param(lines, prog["table_key"], f"{args.prefix}_table.txt")
-                lines = set_param(lines, "outfile", f"{args.prefix}.out")
-                lines = set_param(lines, "output_basename", f"{args.prefix}_")
-                # make relative geo_file paths work from the run directory
-                for i, ln in enumerate(lines):
-                    m = re.match(r"^\s*(geo_file|boundary_file)\s*:\s*(.+)$", ln)
-                    if m:
-                        # relative mesh files (built-in names such as
-                        # Default_UnitSquare are not files and stay as they are)
-                        geo = resolve_mesh_path(m.group(2).strip(), args.base)
-                        if geo is not None:
-                            lines[i] = f"{m.group(1)}: {geo}"
-                    # ParMooN does not create the vtk output directory
-                    m = re.match(r"^\s*output_directory\s*:\s*(.+)$", ln)
-                    if m:
-                        os.makedirs(os.path.join(run_dir, m.group(1).strip()),
-                                    exist_ok=True)
-                dat = os.path.join(run_dir, name + ".dat")
-                open(dat, "w").write("\n".join(lines) + "\n")
-                if args.dry_run:
-                    print(f"{name}: wrote {dat}")
-                    continue
-                print(f"{name}: running ...", end="", flush=True)
-                t0 = time.time()
-                with open(os.path.join(run_dir, f"{args.prefix}_stdout.log"), "w") as log:
-                    try:
-                        subprocess.run([exe, name + ".dat"], cwd=run_dir, stdout=log,
-                                       stderr=subprocess.STDOUT, check=True,
-                                       timeout=args.timeout)
-                        print(f" done in {time.time()-t0:.0f} s")
-                    except subprocess.CalledProcessError as e:
-                        print(f" FAILED (exit code {e.returncode}), see {log.name}")
-                    except subprocess.TimeoutExpired:
-                        print(f" TIMEOUT after {args.timeout} s")
-        if os.path.exists(table):
-            tab = read_table(table)
-            if tab is not None:
-                runs.append((label, tab))
-                run_combos.append(combo)
-                if not args.no_meshes:
-                    plot_meshes(args, run_dir, label)
+    if not args.plot_only and not args.dry_run:
+        if args.base is None:
+            sys.exit("--base is required unless --plot-only is given")
+        store.lock()
+    try:
+        for combo in combos:
+            name = run_name(args.name, combo)
+            key = name[len(args.prefix) + 1:]               # the run key: <name>_<key1>-<value1>_...
+            label = ", ".join(show(k, v)
+                              for k, v in combo) or args.name
+            rec = store.records().get(key)
+            if not args.plot_only:
+                if args.base is None:
+                    sys.exit("--base is required unless --plot-only is given")
+                if rec is not None and not args.redo and not (rec.get("failed") and args.retry_failed):
+                    print(f"{key}: " + (f"failed before ({rec.get('reason')}), skipping (--retry-failed "
+                                        "repeats it)" if rec.get("failed") else "finished, skipping"))
+                else:
+                    lines = read_dat(args.base)
+                    lines = apply_combo(lines, expand_presets([(k, v[0]) for k, v in fixed], combo))
+                    lines = set_param(lines, prog["table_key"], f"{args.prefix}_table.txt")
+                    lines = set_param(lines, "outfile", f"{args.prefix}.out")
+                    lines = set_param(lines, "output_basename", f"{args.prefix}_")
+                    subdirs = []
+                    # make relative geo_file paths work from the run directory
+                    for i, ln in enumerate(lines):
+                        m = re.match(r"^\s*(geo_file|boundary_file)\s*:\s*(.+)$", ln)
+                        if m:
+                            # relative mesh files (built-in names such as
+                            # Default_UnitSquare are not files and stay as they are)
+                            geo = resolve_mesh_path(m.group(2).strip(), args.base)
+                            if geo is not None:
+                                lines[i] = f"{m.group(1)}: {geo}"
+                        # ParMooN does not create the vtk output directory
+                        m = re.match(r"^\s*output_directory\s*:\s*(.+)$", ln)
+                        if m:
+                            subdirs.append(m.group(1).strip())
+                    dat_text = "\n".join(lines) + "\n"
+                    if args.dry_run:
+                        d = os.path.join(args.outdir, f"{args.prefix}_dry_run")
+                        os.makedirs(d, exist_ok=True)
+                        dat = os.path.join(d, name + ".dat")
+                        open(dat, "w").write(dat_text)
+                        print(f"{key}: wrote {dat}")
+                        continue
+                    print(f"{key}: running ...", end="", flush=True)
+                    params = {k: v for k, v in list(expand_presets([(k, v[0]) for k, v in fixed], []))}
+                    params.update({k: v for k, v in combo})
+                    rec = store.run(key, exe, name + ".dat", dat_text, f"{args.prefix}_table.txt",
+                                    args.timeout, study=args.name[len(args.prefix) + 1:],
+                                    params=dict(params, program=args.program), subdirs=subdirs)
+                    if rec.get("failed"):
+                        print(f" FAILED ({rec['reason']}), see {store.path('failed.log')}")
+                    else:
+                        print(f" done in {rec['wall_time']:.0f} s")
+            if rec is not None and not rec.get("failed") and rec.get("table"):
+                tab = parse_table(rec["table"])
+                if tab is not None:
+                    runs.append((label, tab))
+                    run_combos.append(combo)
+                    if not args.no_meshes and os.path.isdir(store.files_dir(key)):
+                        plot_meshes(args, store.files_dir(key), label)
+    finally:
+        if store.lockfile:
+            store.unlock()
     if runs:
         plot_tables(args, runs)
         plot_flow(args, runs)
