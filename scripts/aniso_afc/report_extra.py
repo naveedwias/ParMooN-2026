@@ -16,7 +16,7 @@ table is written only if the records it needs exist:
 """
 import os
 
-from run_study import LABEL, LINEAR, MESH_LABEL, get, load, mism, tex_num
+from run_study import LABEL, LINEAR, MESH_LABEL, UNSOLVED_NOTE, get, load, mism, solved, tex_num
 
 SOLVER_LABEL = {"fixed_point": "fixed point", "fp_anderson": "Anderson", "fp_anderson_safe": "Anderson, safeg.",
                 "newton": "Newton", "newton_cont": "Newton, cont."}
@@ -32,18 +32,46 @@ def _write(outdir, name, lines):
 def _err(r, key):
     if r is None or r.get(key) is None:
         return "--"
-    return tex_num(r[key]) + ("" if r.get("converged", True) else "$^*$")
+    return tex_num(r[key]) + ("" if solved(r) else "$^*$")
 
 
 def _it(r):
     if r is None or r.get("iterations") is None:
         return "--"
-    return str(r["iterations"]) if r.get("converged") else mism(r["iterations"])
+    return str(r["iterations"]) if solved(r) else mism(r["iterations"])
 
 
 def _keys(ex):
     return {1: ("L2", "Linf_away"), 2: ("L2", "Linf_away"), 3: (None, None), 4: ("L2_away_lumped", "Linf_mid"),
             5: ("L2_r1_lumped", "Linf_r1")}[ex]
+
+
+_RUNS = {}
+
+
+def _choose45(outdir, ex, eps, mesh, n, method, variant):
+    """the run of Example 4 / 5 used in the tables, chosen as in the figures (galerkit's rule)"""
+    if ex == 4:
+        import paper_figures as PF
+        if eps != PF.EPS4:
+            return None                               # the figures and their rule are for eps = 1e-8
+        if outdir not in _RUNS:
+            _RUNS[outdir] = PF.Runs(outdir)
+        return PF.choose4(_RUNS[outdir], mesh, n, method, variant)
+    import rotating_figure as RF
+    return RF.choose(RF.records(outdir), eps, mesh, n, method, variant, RF.SOLVERS)
+
+
+def _err45(ex, r, key):
+    if r is None or r.get(key) is None:
+        return "--"
+    if ex == 4:
+        import paper_figures as PF
+        ok = PF.solved4(r)
+    else:
+        import rotating_figure as RF
+        ok = RF.solved(r)
+    return tex_num(r[key]) + ("" if ok else "$^*$")
 
 
 def report_extra(outdir, study, cases, methods, ns, write_dir=None):
@@ -75,19 +103,21 @@ def report_extra(outdir, study, cases, methods, ns, write_dir=None):
                 continue
             lines += ["\\begin{table}[!htbp]", "\\centering\\scriptsize\\setlength{\\tabcolsep}{2.5pt}",
                       f"\\caption{{Example~{ex}, $\\varepsilon={eps:g}$: error and iterations with the stabilization "
-                      f"everywhere / {what}; $^*$: not converged.}}",
-                      "\\resizebox{\\textwidth}{!}{\\begin{tabular}{l " + " ".join(["rr"] * (len(ms) * len(n2))) + "}",
+                      f"everywhere / {what}, and the number of edges where it is switched off (off); "
+                      f"$^*$: nonlinear problem not solved, {UNSOLVED_NOTE}.}}",
+                      "\\resizebox{\\textwidth}{!}{\\begin{tabular}{l " + " ".join(["rrr"] * (len(ms) * len(n2))) + "}",
                       "\\toprule",
-                      " & " + " & ".join(f"\\multicolumn{{{2 * len(n2)}}}{{c}}{{{MESH_LABEL[m]}}}" for m in ms) + "\\\\",
-                      " & " + " & ".join(f"\\multicolumn{{2}}{{c}}{{$n={n}$}}" for _ in ms for n in n2) + "\\\\",
-                      "method & " + " & ".join(["error & it."] * (len(ms) * len(n2))) + "\\\\", "\\midrule"]
+                      " & " + " & ".join(f"\\multicolumn{{{3 * len(n2)}}}{{c}}{{{MESH_LABEL[m]}}}" for m in ms) + "\\\\",
+                      " & " + " & ".join(f"\\multicolumn{{3}}{{c}}{{$n={n}$}}" for _ in ms for n in n2) + "\\\\",
+                      "method & " + " & ".join(["error & it. & off"] * (len(ms) * len(n2))) + "\\\\", "\\midrule"]
             for meth in afc:
                 cells = []
                 for m in ms:
                     for n in n2:
                         a = get(R, example=ex, eps=eps, mesh=m, n=n, method=meth, variant="plain", solver="fixed_point")
                         b = get(R, example=ex, eps=eps, mesh=m, n=n, method=meth, variant=var, solver="fixed_point")
-                        cells += [f"{_err(a, l2)} / {_err(b, l2)}", f"{_it(a)} / {_it(b)}"]
+                        off = "--" if b is None or b.get("n_switched_off") is None else str(b["n_switched_off"])
+                        cells += [f"{_err(a, l2)} / {_err(b, l2)}", f"{_it(a)} / {_it(b)}", off]
                 lines.append(f"{LABEL[meth]} & " + " & ".join(cells) + " \\\\")
             lines += ["\\bottomrule", "\\end{tabular}}", "\\end{table}", ""]
         if lines:
@@ -140,7 +170,9 @@ def report_extra(outdir, study, cases, methods, ns, write_dir=None):
                  f"\\caption{{Iterations at $n={nmax}$ of the nonlinear solvers (Anderson: depth 10, restart after 200 "
                  "iterations without halving the residual; safeg.: non-monotone residual safeguard, window 10; "
                  "Newton, cont.: regularized limiters, $\\sigma=10^{-1},\\dots,10^{-6}$, then $\\sigma=0$); "
-                 "\\mism{colour}: not converged.}",
+                 "\\mism{colour}: not solved (Newton: not ended with Newton on the original scheme, $\\sigma=0$). "
+                 "Anderson: 0 iterations if the start, the low-order solution, already satisfies the stopping "
+                 "criterion; the fixed point iteration counts at least 2.}",
                  "\\resizebox{\\textwidth}{!}{\\begin{tabular}{l " + "r" * len(afc) + "}", "\\toprule",
                  "mesh, solver & " + " & ".join(LABEL[m] for m in afc) + "\\\\", "\\midrule"]
         for ex, eps in cases:
@@ -160,7 +192,8 @@ def report_extra(outdir, study, cases, methods, ns, write_dir=None):
         nc = [m for m in afc if m != "mc"]
         lines = ["\\begin{table}[!htbp]", "\\centering\\scriptsize\\setlength{\\tabcolsep}{3pt}",
                  f"\\caption{{Solved runs (of $n={','.join(map(str, ns))}$): fixed point iteration / Newton with "
-                 "regularized limiters and continuation (finite-difference Jacobian); + off: switched off along "
+                 "regularized limiters and continuation (finite-difference Jacobian; solved: ended with Newton on the "
+                 "original scheme, $\\sigma=0$); --: no runs of this solver; + off: switched off along "
                  "the layers.}", "\\begin{tabular}{l " + "r" * len(nc) + "}", "\\toprule",
                  "mesh & " + " & ".join(LABEL[m] for m in nc) + "\\\\", "\\midrule"]
         for ex, eps in cases:
@@ -175,8 +208,10 @@ def report_extra(outdir, study, cases, methods, ns, write_dir=None):
                     for meth in nc:
                         cnt = []
                         for sv in ("fixed_point", "newton_cont"):
-                            cnt.append(sum(1 for n in ns if (get(R, example=ex, eps=eps, mesh=m, n=n, method=meth,
-                                                                 variant=v, solver=sv) or {}).get("converged")))
+                            rs = [get(R, example=ex, eps=eps, mesh=m, n=n, method=meth, variant=v, solver=sv)
+                                  for n in ns]
+                            # -- where this solver has no run at all (not: no run solved)
+                            cnt.append("--" if all(r is None for r in rs) else str(sum(solved(r) for r in rs)))
                         cells.append(f"{cnt[0]}/{cnt[1]}")
                     lines.append(f"{MESH_LABEL[m]}{' + off' if v == 'loff' else ''} & " + " & ".join(cells) + " \\\\")
         lines += ["\\bottomrule", "\\end{tabular}", "\\end{table}", ""]
@@ -201,7 +236,9 @@ def report_extra(outdir, study, cases, methods, ns, write_dir=None):
                   "$x\\le1-\\tau_x$ against the asymptotic reference, and $\\max u_h$"
                   if ex == 4 else ": discrete (lumped) $L^2$ error for $r\\le1$ against the radial reference and "
                                   "the undershoot $-\\min u_h$") +
-                 "; + off: switched off along the layers; $^*$: not converged.}",
+                 "; + off: switched off along the layers; solver as galerkit: the first of Anderson with safeguard, "
+                 "Newton with continuation, fixed point that solves the scheme (residual $\\le10^{-8}$" +
+                 ("; Newton: ended at $\\sigma=0$" if ex == 4 else "") + "); $^*$: not solved, " + UNSOLVED_NOTE + ".}",
                  "\\resizebox{\\textwidth}{!}{\\begin{tabular}{l " + " ".join(["r" * len(cols)] * len(ms)) + "}",
                  "\\toprule", " & " + " & ".join(f"\\multicolumn{{{len(cols)}}}{{c}}{{{MESH_LABEL[m]}}}"
                                                   for m in ms) + "\\\\",
@@ -210,18 +247,14 @@ def report_extra(outdir, study, cases, methods, ns, write_dir=None):
             for v in (("plain",) if meth in LINEAR else ("plain", "loff")):
                 cells = []
                 for m in ms:
-                    r = None
-                    for sv in (("linear",) if meth in LINEAR else ("newton_cont", "fp_anderson_safe", "fixed_point")):
-                        r = get(R, example=ex, eps=eps, mesh=m, n=n, method=meth, variant=v, solver=sv)
-                        if r is not None and r.get("converged", True):
-                            break
+                    r = _choose45(outdir, ex, eps, m, n, meth, v)
                     for _c, k in cols:
                         if r is None or r.get(k) is None:
                             cells.append("--")
                         elif k == "u_max":
                             cells.append(f"{r[k]:.3f}")
                         else:
-                            cells.append(_err(r, k) if k != "undershoot" else tex_num(r[k]))
+                            cells.append((_err45(ex, r, k)) if k != "undershoot" else tex_num(r[k]))
                 lines.append(f"{LABEL[meth]}{' + off' if v == 'loff' else ''} & " + " & ".join(cells) + " \\\\")
         lines += ["\\bottomrule", "\\end{tabular}}", "\\end{table}", ""]
         _write(wdir, f"{pre}_{study}_ex{ex}.tex", lines)

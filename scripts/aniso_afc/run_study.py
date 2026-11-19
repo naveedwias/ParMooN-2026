@@ -286,6 +286,25 @@ def get(R, **kw):
     return None
 
 
+def solved(r):
+    """the nonlinear problem of a run is solved: linear methods always; Newton with continuation only if it
+    ended with Newton on the original scheme (sigma = 0, 'polished', galerkit's definition); the other solvers
+    if they reached the tolerance. Runs of versions without the 'polished' record: their converged flag."""
+    if r is None:
+        return False
+    if r.get("method") in LINEAR or r.get("solver") == "linear":
+        return True
+    if not r.get("converged"):
+        return False
+    return not (r.get("solver") == "newton_cont" and r.get("polished") is False)
+
+
+# caption text for the values of unsolved runs (the solvers return their best iterate, run_study / C++)
+UNSOLVED_NOTE = ("values of unsolved runs are those of the iterate the solver returned (fixed point and Anderson: "
+                 "the one with the smallest residual; Newton with continuation: the solution of the last "
+                 "regularized stage), not of a solution")
+
+
 def tex_num(x):
     if x is None or not np.isfinite(x):
         return "--"
@@ -324,7 +343,8 @@ def report(outdir, study, cases, meshes, methods, ns, solver="fixed_point", writ
         if key is not None:
             lines_acc += ["\\begin{table}[!htbp]", "\\centering\\scriptsize\\setlength{\\tabcolsep}{3pt}",
                           f"\\caption{{{cap}, $n={n1}$: maximal nodal error, its order in $n$ (between $n={n0}$ "
-                          f"and {n1}), and the $L^2$ error (ParMooN).}}",
+                          f"and {n1}), and the $L^2$ error (ParMooN); $^*$: nonlinear problem not solved, "
+                          f"{UNSOLVED_NOTE}.}}",
                           "\\begin{tabular}{l " + " ".join(["rrr"] * len(acc_meshes)) + "}", "\\toprule",
                           " & " + " & ".join(f"\\multicolumn{{3}}{{c}}{{{MESH_LABEL[m]}}}" for m in acc_meshes)
                           + "\\\\", "method & " + " & ".join(["max & ord. & $L^2$"] * len(acc_meshes)) + "\\\\",
@@ -339,7 +359,7 @@ def report(outdir, study, cases, meshes, methods, ns, solver="fixed_point", writ
                         continue
                     ordv = (np.log(r0[key] / r1[key]) / np.log(n1 / n0)
                             if r0 and key in r0 and r0[key] > 0 and r1[key] > 0 else None)
-                    mark = "" if r1.get("converged", True) else "$^*$"
+                    mark = "" if solved(r1) else "$^*$"
                     cells += [tex_num(r1[key]) + mark, f"{ordv:.2f}" if ordv is not None else "--",
                               tex_num(r1.get(l2key))]
                 lines_acc.append(f"{LABEL[meth]} & " + " & ".join(cells) + " \\\\")
@@ -359,7 +379,7 @@ def report(outdir, study, cases, meshes, methods, ns, solver="fixed_point", writ
                 c = r.get("certificate", {})
                 ld = r.get("local_dmp", {})
                 cells.append(f"{e:.1e} / {r.get(l2key, float('nan')):.1e} / "
-                             f"{it if it is not None else '-'}{'' if r.get('converged', True) else '*'} / "
+                             f"{it if it is not None else '-'}{'' if solved(r) else '*'} / "
                              f"{'ok' if c.get('n_bad', 0) == 0 else c.get('n_bad')} / {ld.get('n_viol', '-')}"
                              if e is not None else f"it. {it}")
             md.append(f"| {LABEL[meth]} | " + " | ".join(cells) + " |")
@@ -370,7 +390,7 @@ def report(outdir, study, cases, meshes, methods, ns, solver="fixed_point", writ
             "method & " + " & ".join(["u & / & $\\times$"[: 3 * len(acc_meshes) + 6]] * len(cases)) + "\\\\")
     for kind, lines in (("it", lines_it), ("dmp", lines_dmp)):
         cap = (f"Iterations of the fixed point iteration at $n={n1}$ (u: uniform, /: Shishkin /, $\\times$: "
-               f"Shishkin $\\times$); \\mism{{colour}}: not converged." if kind == "it" else
+               f"Shishkin $\\times$); \\mism{{colour}}: not converged in 3000 iterations." if kind == "it" else
                f"DMP at $n={n1}$: ``ok'' if the sufficient mesh condition of the method holds on every edge, "
                "otherwise the number of edges where it fails (\\mism{colour}).")
         lines += ["\\begin{table}[!htbp]", "\\centering\\scriptsize\\setlength{\\tabcolsep}{2.5pt}",
@@ -383,7 +403,7 @@ def report(outdir, study, cases, meshes, methods, ns, solver="fixed_point", writ
                 if r is None:
                     cells.append("--")
                 elif kind == "it":
-                    cells.append(str(r.get("iterations")) if r.get("converged") else mism(r.get("iterations")))
+                    cells.append(str(r.get("iterations")) if solved(r) else mism(r.get("iterations")))
                 else:
                     nb = r.get("certificate", {}).get("n_bad", 0)
                     cells.append("ok" if nb == 0 else mism(nb))

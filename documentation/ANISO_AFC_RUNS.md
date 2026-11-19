@@ -93,7 +93,7 @@ names, ready to replace the files in the paper's `tables/` folder:
 | file | contents |
 |---|---|
 | `aniso_accuracy.tex`, `aniso_dmp.tex`, `aniso_efficiency.tex`, `aniso_mesh.tex` | Examples 1-3: accuracy, DMP, iterations, meshes |
-| `aniso_roff.tex` | switch-off by the Peclet number (Example 2) |
+| `aniso_roff.tex` | switch-off by the Peclet number (Example 2), with the number of switched-off edges |
 | `aniso_layermesh_it.tex`, `aniso_layermesh_acc.tex` | layer-adapted meshes (`aniso_layermesh_acc`: `paper_tables.py`) |
 | `aniso_anderson.tex`, `aniso_newton_all.tex`, `aniso_newton_reg.tex` | nonlinear solvers |
 | `aniso_interior.tex`, `aniso_rotating.tex` | Examples 4 and 5 |
@@ -268,6 +268,31 @@ both): median relative difference 8e-11, the largest at round-off / tolerance le
 from the layers 9e-10 against 6e-15 where the nodal values are exact). `aniso_newton_reg` (n = 32, 128, 126 cells): solved /
 not solved as in galerkit in 122; the other 4 are Newton at n = 128 (Kuzmin three times solved
 only by galerkit, MUAS + off once only by ParMooN: finite-difference instead of exact Jacobian).
+
+## Conventions of the tables
+
+- **Solved** (all tables): a linear method always; the fixed point iteration and Anderson if they reach
+  the tolerance; Newton with continuation only if it ends with Newton on the original scheme
+  (sigma = 0, `polished`), as in galerkit. Before, `aniso_anderson` and `aniso_newton_all` also
+  counted a continuation that stopped at sigma = 1e-6 as solved, `aniso_newton_reg` did not.
+- **Unsolved runs** keep their values with $^*$ (errors) or in colour (iterations); the captions
+  say that these are the values of the iterate the solver returned (fixed point and Anderson: the
+  one with the smallest residual; Newton with continuation: the solution of the last regularized
+  stage), not of a solution.
+- `aniso_newton_all`: `--` where a solver has no runs at all (before: 0, as if no run had been
+  solved), e.g. the fixed point with the layer switch on uniform meshes, which is not run.
+- `aniso_anderson`: Anderson counts 0 iterations when the start (the low-order solution) already
+  satisfies the stopping criterion (uniform meshes of Example 1); the fixed point loop counts at
+  least 2. Said in the caption.
+- `aniso_roff`: a column `off` with the number of edges where the stabilization is switched off.
+  The switch is active (e.g. Example 2, n = 32: 1312 edges on Shishkin "/", 2080 on the crossed
+  mesh), but errors and iterations hardly change.
+- `aniso_interior` (and the report table of Example 5): the solver of a method as in the figures
+  and in galerkit, the first of Anderson with safeguard, Newton with continuation (ended at
+  sigma = 0) and fixed point that solves the scheme with residual <= 1e-8; otherwise the run with
+  the smallest residual of the scheme. Before: Newton first, so the table could show the
+  regularized Newton solution (e.g. F-BBK, Shishkin: max u_h 3.06) where the figures show a
+  better iterate.
 
 ## What to expect against the galerkit results
 
