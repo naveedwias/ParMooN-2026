@@ -21,6 +21,13 @@ ParameterDatabase AdaptiveTimeLoop::default_database()
   db.add("adaptive_output_time", 0.1, "interval for mesh output (PostScript, "
          "needs output_write_ps) and system output (vtk, needs output_write_vtk; "
          "files <output_directory>/<output_basename>.<index>.vtk)", 0., 1.e10);
+  db.add("adaptive_initial_mesh", true, "adapt the mesh to the initial "
+         "condition before the first step (with adaptive_mesh): project u_0, "
+         "estimate at time_start, refine and coarsen as in the time loop "
+         "(adaptive_tol1, adaptive_tol2, adaptive_max_cell_level), repeat "
+         "until nothing changes or adaptive_initial_max_steps is reached");
+  db.add("adaptive_initial_max_steps", 10u, "maximal number of refinement "
+         "steps of the initial mesh adaptation", 0u, 100u);
   db.add("adaptive_write_mesh", true, "write the mesh at the start and at every "
          "output time as <output_directory>/<output_basename>_mesh_t<time>.vtk "
          "(cell data: refinement level, diameter, eta_K) and, with "
@@ -55,8 +62,12 @@ AdaptiveTimeLoop::AdaptiveTimeLoop(TDomain& dom, const ParameterDatabase& param_
       base += "_";
     mesh_prefix = (dir.empty() ? std::string() : dir + "/") + base + "mesh_t";
   }
+  initial_adaptation = db["adaptive_initial_mesh"];
+  initial_max_steps = db["adaptive_initial_max_steps"];
   system = factory();
   system->initialize();
+  if(adaptive && initial_adaptation)
+    adapt_initial_mesh();
   next_output = integrator.get_time() + output_every;
   output_index = 0;
   write_mesh_files(integrator.get_time(), false); // initial mesh
@@ -81,6 +92,54 @@ AdaptiveTimeLoop::AdaptiveTimeLoop(TDomain& dom, const ParameterDatabase& param_
   {
     table_file.open(file);
     table_file << table.str() << std::flush;
+  }
+}
+
+void AdaptiveTimeLoop::adapt_initial_mesh()
+{
+  // the error of an unresolved initial condition is not removed by refining
+  // later (it is transported and decays only on the viscous time scale), so
+  // the mesh is adapted to u_0 with the criterion of the time loop
+  for(size_t step = 0; ; ++step)
+  {
+    system->estimate(estimator);
+    const TCollection* coll = system->get_collection();
+    const int n_cells = coll->GetN_Cells();
+    std::vector<bool> marks_refine(n_cells, false), marks_coarsen(n_cells, false);
+    // the marking of the time loop (refine eta_K > TOL1, coarsen
+    // eta_K < TOL2), so that the first steps do not undo the adaptation
+    int n_marked = 0, n_coarsen = 0;
+    for(int c = 0; c < n_cells; ++c)
+    {
+      const double eta_K = estimator.get_eta_K(c);
+      if(eta_K > tol1 && coll->GetCell(c)->GetGeoLevel() < (int) max_level)
+      { marks_refine[c] = true; n_marked++; }
+      else if(coarsening && eta_K < tol2
+              && coll->GetCell(c)->GetGeoLevel() > initial_level)
+      { marks_coarsen[c] = true; n_coarsen++; }
+    }
+    Output::print("initial mesh adaptation, step ", step, ": eta = ",
+                  estimator.get_estimated_global_error(), ", cells = ",
+                  n_cells, ", dofs = ", system->get_n_dofs(), ", marked ",
+                  n_marked, " for refinement, ", n_coarsen, " for coarsening");
+    if(n_marked == 0 && n_coarsen == 0)
+      break;
+    if(step == initial_max_steps)
+    {
+      Output::warn("AdaptiveTimeLoop", "initial mesh adaptation stopped after ",
+                   initial_max_steps, " steps with ", n_marked, " cells marked "
+                   "for refinement and ", n_coarsen, " for coarsening "
+                   "(adaptive_initial_max_steps)");
+      break;
+    }
+    const int n_derefined = domain.RefineAndCoarsen(marks_refine, marks_coarsen,
+                                                    initial_level);
+    if(n_marked == 0 && n_derefined == 0)
+      break; // coarsening marks that no parent can follow
+    // the old system refers to the replaced collection: rebuild and project
+    // u_0 again on the new mesh (no transfer)
+    system = factory();
+    system->initialize();
   }
 }
 

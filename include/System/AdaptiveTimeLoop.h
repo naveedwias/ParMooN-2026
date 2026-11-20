@@ -96,7 +96,11 @@ class AdaptiveTimeLoop
     std::unique_ptr<AdaptiveTimeSystem> system;
     std::ostringstream table;
     std::ofstream table_file;
-    bool adaptive, coarsening, write_ps, write_mesh;
+    bool adaptive, coarsening, write_ps, write_mesh, initial_adaptation;
+    size_t initial_max_steps;
+    /// @brief adapt the initial mesh to the initial condition: initialize,
+    /// estimate, refine/coarsen as in the time loop, until nothing changes
+    void adapt_initial_mesh();
     std::string mesh_prefix;
     /// @brief write the current mesh (PostScript if output_write_ps, VTK file
     /// with the cell data level, diameter and eta_K if adaptive_write_mesh)

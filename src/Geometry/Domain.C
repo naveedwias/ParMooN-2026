@@ -1250,6 +1250,9 @@ int TDomain::RefineAndCoarsen(const std::vector<bool>& refine,
       to_derefine.push_back(parent);
   }
 
+  // the shape is read before the derefinement: afterwards the collection may
+  // point to deleted cells (e.g. cell 0, if its parent is derefined)
+  const Shapes shape = collection->GetCell(0)->GetShapeDesc()->GetType();
   // set refinement marks on the remaining cells
   for(int k = 0; k < n_cells; k++)
   {
@@ -1264,9 +1267,7 @@ int TDomain::RefineAndCoarsen(const std::vector<bool>& refine,
     parent->Derefine();
     parent->SetNoRefinement();
   }
-  if(db["conforming_closure"] &&
-     (collection->GetCell(0)->GetShapeDesc()->GetType() == Hexahedron ||
-      collection->GetCell(0)->GetShapeDesc()->GetType() == Brick))
+  if(db["conforming_closure"] && (shape == Hexahedron || shape == Brick))
   {
     ErrThrow("Conforming closure with Hexahedrons is not possible with this"
              " code.");

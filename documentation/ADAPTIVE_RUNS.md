@@ -222,7 +222,14 @@ Tolerances. With TOL1 = 5e-3 the mesh grew from 512 to 40675 cells by t = 0.01, 
 | 5e-2 | 15700 | 15.6 | 1.89 | 1.33 | 3.71 |
 | 1e-1 | 11200 | 15.8 | 1.94 | 1.33 | 3.71 |
 
-The input files use TOL1 = 5e-2 and TOL2 = 2.5e-3. Over this range the tolerance hardly changes the error. Its level is set by the start: on the initial mesh (512 cells, h = 1/16) the layers of width 0.02 are not resolved. The L2 projection then has L2(u) = 1.04, and refining later does not remove this error, because at nu = 1e-4 it decays only slowly. So the tolerance can only be judged once the start is resolved (open): either a finer initial mesh (`refinement_n_initial_steps`) or an adaptation of the initial mesh to u_0 before the first step, which the program does not have yet.
+The input files use TOL1 = 5e-2 and TOL2 = 2.5e-3. These runs were made without the initial mesh adaptation. Over this range the tolerance hardly changed the error, because the error came from the start: on the initial mesh (512 cells, h = 1/16) the layers are not resolved. The projection then had L2(u) = 1.04, and refining later did not remove it, because at nu = 1e-4 it decays only slowly.
+
+Initial mesh adaptation (`adaptive_initial_mesh`, default true; `false` switches it off). Before the first step the loop projects u_0, estimates at time_start and refines and coarsens with the rule of the time loop (TOL1, TOL2, maximal level). It repeats this until nothing changes, at most `adaptive_initial_max_steps` (default 10) times. The mesh is rebuilt and u_0 projected again in every step. Example 36, TOL1 = 5e-2: eta goes from 500 (512 cells) down to 4.8 (21282 cells) in 10 steps. The limit is reached because 30-40 cells at the corner (1, 1) stay marked until they reach the maximal level. First time step, without / with the initial adaptation:
+
+| | cells | error | L2(u) | L2(p) |
+|---|---|---|---|---|
+| without | 512 | 12.3 | 1.04 | 8.57 |
+| with | 21282 | 0.045 | 4.7e-4 | 1.1e-2 |
 
 Checked: the header compiled on its own and compared with sympy at 84 points and times (both
 variants, before, during and after the switch): u, its derivatives and Laplacian, p and its
@@ -305,6 +312,8 @@ The averaging is unchanged. The BE step restarts its counter, so the first avera
 | `trab2_averaging` | `periodic` (default): every n* steps as in Gresho et al. (2008) and the manuscript; `on_demand`: n* steps after the start and after mesh changes only (my variant, not from the literature) |
 | `trab2_averaging_steps` | n*, 10 by default; 0 switches averaging off |
 | `adaptive_output_time` | interval of mesh and vtk output |
+| `adaptive_initial_mesh` | `true` (default): adapt the mesh to u_0 before the first step (refine/coarsen with the time-loop rule until nothing changes); `false`: start on the initial mesh |
+| `adaptive_initial_max_steps` | maximal number of steps of the initial adaptation (default 10) |
 | `adaptive_write_mesh` | `true` (default): write the mesh at the start and at every output time as `<output_directory>/<output_basename>_mesh_t<time>.vtk` (cell data level, diameter, eta_K) |
 | `tnse_initial_value` | `l2_projection` (default, manuscript): L2 projection of u_0; `consistent_projection`: stabilized equations at the start time with the exact time derivative; `interpolation`: nodal interpolant |
 | `trab2_first_step` | `semidiscrete` (default): TR from the start, with the initial time derivative from the semidiscrete problem; `backward_euler`: the first step is a backward Euler step, which needs no initial time derivative and damps the inconsistent part of the initial value (Rannacher's idea); accepted without an error estimate, keeps the proposed step size; NSE program only |
@@ -342,6 +351,8 @@ Source: `src/System/AdaptiveTimeLoop.C`
 | `adaptive_coarsening` | `true` | - | coarsening on/off |
 | `adaptive_max_cell_level` | `30` | range [1u, 100u] | maximal refinement level of a cell |
 | `adaptive_output_time` | `0.1` | range [0., 1e10] | interval for mesh output (PostScript, needs output_write_ps) and system output (vtk, needs output_write_vtk; files <output_directory>/<output_basename>.<index>.vtk) |
+| `adaptive_initial_mesh` | `true` | true or false | adapt the mesh to the initial condition before the first step (with adaptive_mesh): project u_0, estimate at time_start, refine and coarsen as in the time loop (adaptive_tol1, adaptive_tol2, adaptive_max_cell_level), repeat until nothing changes or adaptive_initial_max_steps is reached |
+| `adaptive_initial_max_steps` | `10` | range [0, 100] | maximal number of refinement steps of the initial mesh adaptation |
 | `adaptive_write_mesh` | `true` | true or false | write the mesh at the start and at every output time as <output_directory>/<output_basename>_mesh_t<time>.vtk (cell data: refinement level, diameter, eta_K) and, with output_write_ps, as mesh_t<time>.ps |
 
 ### TR-AB2 time integrator (both adaptive programs)
@@ -549,4 +560,5 @@ A failing exactness check points to a defect in the assembly, the estimator, the
 - CIP normalization: the code divides by max{||u~||_inf, `cip_u_min`} with `cip_u_min` = 0.25. The BDF2 manuscript divides by ||u~||_inf, with S := 0 for u~ = 0, which the code also implements. Set `cip_u_min: 0` to follow the manuscript, or state the lower bound in the paper.
 - `CELL_MEASURE`: the assembly, the estimator (delta_K, mu_K) and the step lower bound use the same cell measure (fixed in `b986906`); the estimator's own h_K weights are the cell diameter, as in the theory.
 - Initial time derivative (fixed in `1cd520e` and `545ba8c`). The linear semidiscrete problem for (Ud^0, P^0) prescribed by the manuscript is singular in two cases. Without PSPG (spg_delta0 = 0) its pressure rows vanish. With PSPG and an outflow boundary, its PSPG pressure rows determine only Ud + grad P. In both cases the code now uses the differentiated constraint B Ud = 0. Equal-order pairs with PSPG and an outflow boundary stop with an error, because the initial derivative is not determined there. The manuscript should state this.
+- `TDomain::RefineAndCoarsen` read `collection->GetCell(0)` after the derefinement, so it read a deleted cell whenever the parent of cell 0 was derefined. It crashed at the first mesh change after the initial adaptation (1826 parents derefined). Fixed: the shape is read before the derefinement.
 - The pressure of runs started from the L2 projection with the trapezoidal rule was polluted by the inconsistent part of U^0 (L2(p) = O(1), not decreasing with h). Fixed: the input files start with a backward Euler step (see the section on the pressure error above). The manuscript should state the start step.
