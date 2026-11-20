@@ -65,6 +65,11 @@ class AdaptiveTimeSystem : public TrapezoidalAB2_System
     /// (the index is kept by the loop, since the system is rebuilt on every
     /// mesh change)
     virtual void output(int index) = 0;
+    /// @brief true if be_step() is implemented; the initial mesh adaptation
+    /// then estimates the state after a trial backward Euler step (the
+    /// projected u_0 is not consistent with a discrete constraint, and its
+    /// stiff part inflates the estimate everywhere until it is damped)
+    virtual bool has_be_step() const { return false; }
 };
 
 class AdaptiveTimeLoop

@@ -43,6 +43,7 @@ class TimeNavierStokesSPG : public AdaptiveTimeSystem
     /// @brief backward Euler step; restarts the derivative history of the
     /// AB2 predictor (Ud_old = Ud)
     void be_step(double t, double k) override;
+    bool has_be_step() const override { return true; }
     double predictor_difference_norm() override;
     void average_with_saved(double t_mid) override;
     void shift_derivative() override;

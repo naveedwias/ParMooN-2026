@@ -6,6 +6,7 @@
 #include "Vertex.h"
 #include <fstream>
 #include <algorithm>
+#include <cmath>
 #include <iomanip>
 
 ParameterDatabase AdaptiveTimeLoop::default_database()
@@ -23,9 +24,12 @@ ParameterDatabase AdaptiveTimeLoop::default_database()
          "files <output_directory>/<output_basename>.<index>.vtk)", 0., 1.e10);
   db.add("adaptive_initial_mesh", true, "adapt the mesh to the initial "
          "condition before the first step (with adaptive_mesh): project u_0, "
-         "estimate at time_start, refine and coarsen as in the time loop "
+         "estimate (Navier-Stokes: after a trial backward Euler step of "
+         "the first step size, which is discarded), refine and coarsen as in "
+         "the time loop "
          "(adaptive_tol1, adaptive_tol2, adaptive_max_cell_level), repeat "
-         "until nothing changes or adaptive_initial_max_steps is reached");
+         "until the number of cells changes by less than 0.5 % or "
+         "adaptive_initial_max_steps is reached");
   db.add("adaptive_initial_max_steps", 10u, "maximal number of refinement "
          "steps of the initial mesh adaptation", 0u, 100u);
   db.add("adaptive_write_mesh", true, "write the mesh at the start and at every "
@@ -70,7 +74,8 @@ AdaptiveTimeLoop::AdaptiveTimeLoop(TDomain& dom, const ParameterDatabase& param_
     adapt_initial_mesh();
   next_output = integrator.get_time() + output_every;
   output_index = 0;
-  write_mesh_files(integrator.get_time(), false); // initial mesh
+  // initial mesh (eta_K of the last initial adaptation step, if any)
+  write_mesh_files(integrator.get_time(), adaptive && initial_adaptation);
   system->output(output_index++); // initial condition
   table << "# time  dt  cells  dofs  eta  error  effectivity  n_marked_refine"
            "  n_marked_coarsen";
@@ -100,8 +105,22 @@ void AdaptiveTimeLoop::adapt_initial_mesh()
   // the error of an unresolved initial condition is not removed by refining
   // later (it is transported and decays only on the viscous time scale), so
   // the mesh is adapted to u_0 with the criterion of the time loop
+  const bool trial = system->has_be_step();
+  const double t0 = integrator.get_time();
+  const double k = integrator.get_step();
+  bool fresh = true; // the system holds the projected u_0
   for(size_t step = 0; ; ++step)
   {
+    if(trial)
+    {
+      // estimate the state after a backward Euler step of the first step
+      // size: it damps the inconsistent (stiff) part of the projection, which
+      // otherwise inflates eta_K in the whole domain and prevents coarsening
+      system->save_state();
+      system->predict(k, 1.);
+      system->be_step(t0, k);
+      fresh = false;
+    }
     system->estimate(estimator);
     const TCollection* coll = system->get_collection();
     const int n_cells = coll->GetN_Cells();
@@ -134,10 +153,23 @@ void AdaptiveTimeLoop::adapt_initial_mesh()
     }
     const int n_derefined = domain.RefineAndCoarsen(marks_refine, marks_coarsen,
                                                     initial_level);
-    if(n_marked == 0 && n_derefined == 0)
-      break; // coarsening marks that no parent can follow
+    const int n_new = domain.GetCollection(It_Finest, 0)->GetN_Cells();
+    Output::print("initial mesh adaptation: ", n_derefined, " parents derefined, "
+                  "new mesh has ", n_new, " cells");
+    // the mesh has settled when it changes by less than 0.5 % (a few cells
+    // near the maximal level can be refined and coarsened in turn)
+    const bool settled = std::abs(n_new - n_cells) < 0.005*n_cells;
     // the old system refers to the replaced collection: rebuild and project
     // u_0 again on the new mesh (no transfer)
+    system = factory();
+    system->initialize();
+    fresh = true;
+    if(settled)
+      break;
+  }
+  if(!fresh)
+  {
+    // discard the trial step: start from the projected u_0
     system = factory();
     system->initialize();
   }
