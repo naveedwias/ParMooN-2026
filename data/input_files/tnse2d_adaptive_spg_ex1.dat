@@ -38,5 +38,9 @@ output_directory: vtk
 trab2_averaging: periodic
 # initial velocity: L2 projection of u_0 (manuscript, Section 2)
 tnse_initial_value: l2_projection
+# first step: backward Euler. It damps the part of U^0 that is inconsistent with
+# the discrete constraint; the trapezoidal rule alone carries it on with factor
+# ~ -1 and the pressure error then stays O(1) on fine meshes (ADAPTIVE_RUNS.md)
+trab2_first_step: backward_euler
 # lower bound dt >= alpha min delta_K (adaptive step control only)
 tnse_dt_alpha: 0.5

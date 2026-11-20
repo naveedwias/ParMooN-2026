@@ -303,7 +303,15 @@ How to choose TOL1. Estimate it as TOL1 ≈ eta / sqrt(number of cells you can a
 
 `on_demand` averaging is not the algorithm of the manuscript. If it is used for published results, it has to be described: averaging (Gresho et al. 2008) is applied once, n* steps after the start and after every mesh change.
 
-With U^0 = L2 projection and fixed time steps there is no averaging, and the trapezoidal rule carries the inconsistent part of U^0 on without damping. This pollutes the pressure: Example 1 on level 5 has L2(p) = 1.37 instead of 0.014 with `consistent_projection`. With the adaptive step control, the first periodic averaging removes it.
+Pressure error and the start of the trapezoidal rule. U^0 (L2 projection or interpolant) is not consistent with the discrete constraint (the divergence row with PSPG). The trapezoidal rule is not L-stable and carries the inconsistent part, which lies in stiff modes, on with factor about -1; the pressure is the multiplier of the constraint and keeps an O(1) error that does not decrease with h. With fixed steps nothing removes it (no averaging); with the adaptive control the first periodic averaging does, and an interpolation to a new mesh brings it back until the next averaging. All `tnse2d_adaptive_spg_*.dat` files now set `trab2_first_step: backward_euler` (the backward Euler step damps the stiff part by about 1/(1 + k lambda)); the layer-switch files also set `trab2_be_after_mesh_change: true`. A fixed-step run that starts with TR from an inconsistent U^0 prints a warning. Example 23 (Example 1 of the manuscript), dt = 1e-3, t = 0.006, L2(p):
+
+| level | TR from L2 projection (old) | BE first step, L2 projection | TR from `consistent_projection` |
+|---|---|---|---|
+| 4 | 5.1e-1 | 7.2e-2 | 6.3e-2 |
+| 5 | 1.43 | 1.7e-2 | 1.4e-2 |
+| 6 | 1.35 | 3.4e-3 | 3.2e-3 |
+
+Both remedies give O(h^2); `consistent_projection` needs the exact solution and Dirichlet data, the backward Euler step needs neither. L2(u) on level 6: 5.5e-5 (old), 6.4e-5 (BE first step), 7.8e-5 (`consistent_projection`). The single first-order step costs O(k^2) locally, the order of the TR error.
 
 ## Parameter reference
 
@@ -528,4 +536,4 @@ A failing exactness check points to a defect in the assembly, the estimator, the
 - CIP normalization: the code divides by max{||u~||_inf, `cip_u_min`} with `cip_u_min` = 0.25. The BDF2 manuscript divides by ||u~||_inf, with S := 0 for u~ = 0, which the code also implements. Set `cip_u_min: 0` to follow the manuscript, or state the lower bound in the paper.
 - `CELL_MEASURE`: the assembly, the estimator (delta_K, mu_K) and the step lower bound use the same cell measure (fixed in `b986906`); the estimator's own h_K weights are the cell diameter, as in the theory.
 - Initial time derivative (fixed in `1cd520e` and `545ba8c`). The linear semidiscrete problem for (Ud^0, P^0) prescribed by the manuscript is singular in two cases. Without PSPG (spg_delta0 = 0) its pressure rows vanish. With PSPG and an outflow boundary, its PSPG pressure rows determine only Ud + grad P. In both cases the code now uses the differentiated constraint B Ud = 0. Equal-order pairs with PSPG and an outflow boundary stop with an error, because the initial derivative is not determined there. The manuscript should state this.
-- The pressure of fixed-step runs started from the L2 projection (Example 1 of the manuscript) is polluted by the inconsistent part of U^0, as described above. Decide between averaging in fixed-step mode, a damping start step, or `tnse_initial_value: consistent_projection` before producing the Example 1 figures.
+- The pressure of runs started from the L2 projection with the trapezoidal rule was polluted by the inconsistent part of U^0 (L2(p) = O(1), not decreasing with h). Fixed: the input files start with a backward Euler step (see the section on the pressure error above). The manuscript should state the start step.

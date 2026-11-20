@@ -262,7 +262,18 @@ void TimeNavierStokesSPG::initialize()
     ud_old = ud;
   }
   else
+  {
+    // TR is not L-stable: the part of U^0 in the stiff modes (inconsistent
+    // with the PSPG constraint) is carried on with factor ~ -1 and pollutes
+    // the pressure; in fixed-step mode nothing removes it (no averaging)
+    if(init != "consistent_projection" && db.contains("trab2_adaptive")
+       && !db["trab2_adaptive"].get<bool>())
+      Output::warn("TimeNavierStokesSPG", "fixed steps, trab2_first_step "
+                   "semidiscrete and tnse_initial_value ", init, ": the "
+                   "pressure keeps an O(1) error from the inconsistent initial "
+                   "value; use trab2_first_step backward_euler");
     initial_time_derivative(t);
+  }
 }
 
 void TimeNavierStokesSPG::assemble_mass(BlockFEMatrix& Mat, const ParameterDatabase& la_db)

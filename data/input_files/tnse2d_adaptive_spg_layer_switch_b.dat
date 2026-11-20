@@ -42,6 +42,12 @@ output_write_ps: true
 output_directory: vtk
 # initial velocity: L2 projection of u_0 (manuscript, Section 2)
 tnse_initial_value: l2_projection
+# first step: backward Euler. It damps the part of U^0 that is inconsistent with
+# the discrete constraint; the trapezoidal rule alone carries it on with factor
+# ~ -1 and the pressure error then stays O(1) on fine meshes (ADAPTIVE_RUNS.md)
+trab2_first_step: backward_euler
+# the state interpolated to a new mesh is inconsistent in the same way
+trab2_be_after_mesh_change: true
 # lower bound dt >= alpha min delta_K; alpha to be calibrated (manuscript, Section 4)
 tnse_dt_alpha: 0.5
 # boundary layers that move (TNSE_layer_switch.h): NSE1 = Oseen_AAJ_layers.h with
