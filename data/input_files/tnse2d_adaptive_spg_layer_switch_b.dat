@@ -32,8 +32,9 @@ trab2_tolt: 1.0e-5
 trab2_dt0: 1.0e-4
 trab2_dt_max: 0.01
 adaptive_mesh: true
-adaptive_tol1: 5.0e-3
-adaptive_tol2: 2.5e-4
+# TOL1 ~ eta/sqrt(cells): eta ~ 16, about 1.5e4 cells (ADAPTIVE_RUNS.md, examples 36, 37)
+adaptive_tol1: 5.0e-2
+adaptive_tol2: 2.5e-3
 adaptive_max_cell_level: 9
 # meshes (vtk/<basename>_mesh_t<time>.vtk, mesh_t<time>.ps) and solutions every 0.05
 adaptive_output_time: 0.05

@@ -214,6 +214,16 @@ python3 $S --program tnse --base $E/tnse2d_adaptive_spg_layer_switch_a.dat --nam
 
 Every 0.05 the runs write the mesh, as `vtk/<prefix>_mesh_t<time>.vtk` (cell data `level`, `diameter`, `eta_K`) and as `mesh_t<time>.ps`, together with the solution. The script keeps them in `<prefix>_files/<run>/` and draws the PostScript meshes into `<prefix>_meshes.<format>`, so you can follow the refinement moving from x = 1, y = 1 to the new walls.
 
+Tolerances. With TOL1 = 5e-3 the mesh grew from 512 to 40675 cells by t = 0.01, and level 9 was reached in the layers. Example 36, adaptive from 512 cells, at t = 0.03 (TOL2 = TOL1/20):
+
+| TOL1 | cells | eta | error | L2(u) | L2(p) |
+|---|---|---|---|---|---|
+| 2e-2 | 24800 | 15.4 | 1.85 | 1.33 | 3.70 |
+| 5e-2 | 15700 | 15.6 | 1.89 | 1.33 | 3.71 |
+| 1e-1 | 11200 | 15.8 | 1.94 | 1.33 | 3.71 |
+
+The input files use TOL1 = 5e-2 and TOL2 = 2.5e-3. Over this range the tolerance hardly changes the error. Its level is set by the start: on the initial mesh (512 cells, h = 1/16) the layers of width 0.02 are not resolved. The L2 projection then has L2(u) = 1.04, and refining later does not remove this error, because at nu = 1e-4 it decays only slowly. So the tolerance can only be judged once the start is resolved (open): either a finer initial mesh (`refinement_n_initial_steps`) or an adaptation of the initial mesh to u_0 before the first step, which the program does not have yet.
+
 Checked: the header compiled on its own and compared with sympy at 84 points and times (both
 variants, before, during and after the switch): u, its derivatives and Laplacian, p and its
 derivatives and f agree to 2e-14, div u = 0 exactly, u = 0 on the boundary; NSE1 equals
