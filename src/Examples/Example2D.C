@@ -214,6 +214,22 @@ ParameterDatabase Example2D::default_example_database()
   db.add("tgv_periodic", true, "Taylor-Green vortex: periodic boundary "
          "conditions (needs periodic_translations and k L a multiple of 2 pi; "
          "no adaptive meshes), otherwise Dirichlet data from the exact solution");
+  db.add("layer_switch_kappa1", 0.5, "boundary layers that move (Example_TimeNSE2D "
+         "36, 37; TNSE_layer_switch.h): lambda = kappa1/sqrt(nu) of NSE1 (layers at "
+         "x = 1, y = 1)", 1.e-10, 1.e10);
+  db.add("layer_switch_kappa2", 0.75, "boundary layers that move: mu = kappa2/sqrt(nu) "
+         "of NSE2 (36: layers at x = 0, y = 0; 37: at x = 1, y = 0)", 1.e-10, 1.e10);
+  db.add("layer_switch_scale_nse2", true, "boundary layers that move: scale NSE2 by "
+         "kappa1/kappa2, so that both parts have about the same peak velocity");
+  db.add("layer_switch_c1", 0.3, "boundary layers that move: NSE1 is switched off "
+         "on [c1, c] (absolute times)", -1.e10, 1.e10);
+  db.add("layer_switch_c", 0.5, "boundary layers that move: end of the switch-off of "
+         "NSE1 (time1 = 0 for t >= c)", -1.e10, 1.e10);
+  db.add("layer_switch_d", 0.5, "boundary layers that move: NSE2 is switched on on "
+         "[d, d2] (time2 = 0 for t <= d; c = d: u = 0 at t = c; c > d: overlap)",
+         -1.e10, 1.e10);
+  db.add("layer_switch_d2", 0.7, "boundary layers that move: end of the switch-on of "
+         "NSE2", -1.e10, 1.e10);
   db.add("pressure_factor", 1.0, "Parameter used in the NSE Examples Polynomial.h,"
   	  "SinCos.h and polynomial_solution.h to scale the pressure by a certain factor ");
   return db;

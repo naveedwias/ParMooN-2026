@@ -110,6 +110,20 @@ namespace tnse_taylor_green          // case 35
 #include "TNSE_2D/TNSE_taylor_green.h"
 }
 
+// boundary layers that move to other walls (TNSE_layer_switch.h)
+namespace tnse_layer_switch_a        // case 36: layers x = 1, y = 1  ->  x = 0, y = 0
+{
+#define TNSE_LAYER_SWITCH_VARIANT 1
+#include "TNSE_2D/TNSE_layer_switch.h"
+#undef TNSE_LAYER_SWITCH_VARIANT
+}
+namespace tnse_layer_switch_b        // case 37: layers x = 1, y = 1  ->  x = 1, y = 0
+{
+#define TNSE_LAYER_SWITCH_VARIANT 2
+#include "TNSE_2D/TNSE_layer_switch.h"
+#undef TNSE_LAYER_SWITCH_VARIANT
+}
+
 CoeffFct2D bdf2imex_stokes_projection_coeffs(int example)
 {
   switch(example)
@@ -653,6 +667,41 @@ Example_TimeNSE2D::Example_TimeNSE2D(
       initialCondition.push_back( ExactU1 );
       initialCondition.push_back( ExactU2 );
       initialCondition.push_back( ExactP );
+      break;
+    }
+
+    case 36: // boundary layers x = 1, y = 1 switched to x = 0, y = 0 (TNSE_layer_switch.h)
+    case 37: // boundary layers x = 1, y = 1 switched to x = 1, y = 0
+    {
+      const ParameterDatabase& e = example_database;
+#define LAYER_SWITCH_SETUP(NS)                                                    \
+      NS::set_layer_switch_parameters(e["layer_switch_kappa1"], e["layer_switch_kappa2"], \
+                                      e["layer_switch_scale_nse2"],               \
+                                      e["layer_switch_c1"], e["layer_switch_c"],  \
+                                      e["layer_switch_d"], e["layer_switch_d2"]); \
+      exact_solution.push_back( NS::ExactU1 );                                    \
+      exact_solution.push_back( NS::ExactU2 );                                    \
+      exact_solution.push_back( NS::ExactP );                                     \
+      boundary_conditions.push_back( NS::BoundCondition );                        \
+      boundary_conditions.push_back( NS::BoundCondition );                        \
+      boundary_conditions.push_back( BoundConditionNoBoundCondition );            \
+      boundary_data.push_back( NS::U1BoundValue );                                \
+      boundary_data.push_back( NS::U2BoundValue );                                \
+      boundary_data.push_back( BoundaryValueHomogenous );                         \
+      problem_coefficients = NS::LinCoeffs;                                       \
+      NS::ExampleFile();                                                          \
+      initialCondition.push_back( NS::ExactU1 );                                  \
+      initialCondition.push_back( NS::ExactU2 );                                  \
+      initialCondition.push_back( NS::ExactP );
+      if(example_code == 36)
+      {
+        LAYER_SWITCH_SETUP(tnse_layer_switch_a)
+      }
+      else
+      {
+        LAYER_SWITCH_SETUP(tnse_layer_switch_b)
+      }
+#undef LAYER_SWITCH_SETUP
       break;
     }
 

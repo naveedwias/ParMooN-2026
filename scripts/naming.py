@@ -29,7 +29,8 @@ PROBLEMS = {
 # example names per example class
 TIME_NSE = {23: "aaj_smooth", 25: "bdf2_smooth", 26: "lake_at_rest", 27: "shear_layer",
             28: "poly_space", 30: "poly_space_time2", 31: "poly_space_time1",
-            32: "translating_vortex", 34: "poly_neumann", 35: "taylor_green"}
+            32: "translating_vortex", 34: "poly_neumann", 35: "taylor_green",
+            36: "layer_switch_x0y0", 37: "layer_switch_x1y0"}
 STEADY_NSE = {21: "aaj_smooth", 22: "aaj_layers", 29: "spg_polynomial",
               33: "spg_polynomial_neumann"}
 TIME_CD = {11: "fgjn_ex2", 14: "fgjn_ex3", 15: "fgjn_ex4", 16: "fgjn_ex5"}

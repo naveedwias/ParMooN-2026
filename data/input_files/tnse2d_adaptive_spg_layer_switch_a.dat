@@ -1,0 +1,60 @@
+[ transient SUPG/PSPG/grad-div Navier-Stokes, boundary layers that move (example 36, TNSE_layer_switch.h, variant a): layers at x = 1, y = 1 switched off on [0.3, 0.5], layers at x = 0, y = 0 switched on on [0.5, 0.7]; adaptive meshes and time steps ]
+outfile: tnse2d_adaptive_spg_layer_switch_a.out
+boundary_file: Default_UnitSquare
+geo_file: TwoTriangles
+refinement_n_initial_steps: 4
+conforming_closure: true
+problem_type: 5
+example: 36
+verbosity: 2
+output_write_vtk: true
+output_compute_errors: true
+output_basename: tnse_layer_switch_a
+space_discretization_type: supg_pspg_graddiv
+spg_delta0: 0.5
+spg_mu0: 0.5
+spg_estimator_sigma0: 0.0
+nonlinloop_maxit: 30
+nonlinloop_epsilon: 1e-10
+solver_type: direct
+direct_solver_type: umfpack
+VELOCITY_SPACE: 2
+PRESSURE_SPACE: 1
+reynolds_number: 1.0e4
+NSTYPE: 14
+LAPLACETYPE: 0
+NSE_NONLINEAR_FORM: 0
+time_start: 0.0
+time_end: 1.0
+time_step_length: 1.0e-3
+trab2_adaptive: true
+trab2_tolt: 1.0e-5
+trab2_dt0: 1.0e-4
+trab2_dt_max: 0.01
+adaptive_mesh: true
+adaptive_tol1: 5.0e-3
+adaptive_tol2: 2.5e-4
+adaptive_max_cell_level: 9
+adaptive_output_time: 0.1
+tnse_write_table: tnse2d_adaptive_spg_layer_switch_a_table.txt
+trab2_averaging: periodic
+output_write_ps: true
+output_directory: vtk
+# initial velocity: L2 projection of u_0 (manuscript, Section 2)
+tnse_initial_value: l2_projection
+# lower bound dt >= alpha min delta_K; alpha to be calibrated (manuscript, Section 4)
+tnse_dt_alpha: 0.5
+# boundary layers that move (TNSE_layer_switch.h): NSE1 = Oseen_AAJ_layers.h with
+# lambda = kappa1/sqrt(nu) (layers at x = 1, y = 1); NSE2 with mu = kappa2/sqrt(nu), layers at
+# x = 0, y = 0; u = time1 NSE1 + time2 NSE2 with C^2 steps:
+# time1 = 1 on [0, c1], 0 after c; time2 = 0 before d, A_2 = kappa1/kappa2 after d2.
+# c = d: u = 0 at t = c (hand-over through zero); for an overlap of both layer systems
+# set e.g. layer_switch_d: 0.4 and layer_switch_c: 0.6.
+# nu = 1e-4 (reynolds_number 1e4): layer widths 1/lambda = 0.020, 1/mu = 0.013
+layer_switch_kappa1: 0.5
+layer_switch_kappa2: 0.75
+layer_switch_scale_nse2: true
+layer_switch_c1: 0.3
+layer_switch_c: 0.5
+layer_switch_d: 0.5
+layer_switch_d2: 0.7

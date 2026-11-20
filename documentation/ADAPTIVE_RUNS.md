@@ -8,7 +8,7 @@ After `git pull`, run `cmake .` in the build directory whenever files were added
 
 | what | where |
 |---|---|
-| time-dependent NSE examples 23 (Example 1, smooth), 32 (Example 2, translating vortex), 28 (u in P2, p in P1), 30, 31 (exact in space and time), 34 (as 30 with an outflow boundary) and the BDF2-IMEX examples 25 (smooth), 26 (lake at rest), 27 (shear layer) | headers in `include/Examples/TNSE_2D/`, registered in `Example_TimeNSE2D` (`src/Examples/Example_TimeNSE2D.C`) |
+| time-dependent NSE examples 23 (Example 1, smooth), 32 (Example 2, translating vortex), 36, 37 (boundary layers that move to other walls), 28 (u in P2, p in P1), 30, 31 (exact in space and time), 34 (as 30 with an outflow boundary) and the BDF2-IMEX examples 25 (smooth), 26 (lake at rest), 27 (shear layer) | headers in `include/Examples/TNSE_2D/`, registered in `Example_TimeNSE2D` (`src/Examples/Example_TimeNSE2D.C`) |
 | stationary examples 21 (AAJ27 Ex. 4.1), 22 (Ex. 4.2), 29 (u in P2, p in P1) and 33 (as 29 with a Neumann boundary) | `include/Examples/NSE_2D/`, registered in `Example_NSE2D` |
 | convection-diffusion examples 11, 14, 15, 16 (FGJN14 Ex. 2-5) | `include/Examples/TCD_2D/`, `Example_TimeCD2D` |
 | systems | `System/TimeNavierStokesSPG`, `System/TimeConvectionDiffusionTR`, `System/AdaptiveTimeLoop`, estimator `System/NSE_SPG_ErrorEstimator` (stationary and, with `set_transient`, transient) |
@@ -170,6 +170,57 @@ python3 ../ParMooN-2026/scripts/spg_study.py --study ex42 --pairs 2/1 --nu 1e-6 
 ```
 
 Runs whose table already exists are not repeated; `--plot-only` regenerates the figures.
+
+## Boundary layers that move to other walls (examples 36, 37)
+
+Header `include/Examples/TNSE_2D/TNSE_layer_switch.h` (documentation of the construction at its
+top), registered as examples 36 and 37 in `Example_TimeNSE2D`; input files
+`data/input_files/tnse2d_adaptive_spg_layer_switch_a.dat` (36) and `_b.dat` (37).
+
+Two steady solutions of the type of example 22 (Afzal-Ahmed-John 2026, Example 4.2):
+u = curl(A(xi) A(eta)), A(s) = s^2 (1 - exp(k (s - 1)))^2, p = exp(xi + eta) - (e - 1)^2,
+
+- NSE1: xi = x, eta = y, k = lambda = 0.5/sqrt(nu): layers at x = 1 and y = 1 (equal to
+  `Oseen_AAJ_layers.h` to 4e-16);
+- NSE2: k = mu = 0.75/sqrt(nu) (layers 1.5 times thinner), scaled by A_2 = lambda/mu so that the
+  peak velocities are about equal; example 36: xi = 1 - x, eta = 1 - y, layers at x = 0, y = 0;
+  example 37: xi = x, eta = 1 - y, layers at x = 1 and y = 0 (x = 1 stays, thinner).
+
+u(t) = time1(t) NSE1 + time2(t) NSE2 with the C^2 step S(tau) = tau^3 (10 - 15 tau + 6 tau^2):
+time1 = 1 on [0, c1], decays on [c1, c], 0 after c; time2 = 0 before d, rises on [d, d2], A_2
+after d2. The velocity vanishes on the whole boundary at every time (homogeneous Dirichlet data),
+is divergence-free, and the pressure has zero mean; f = d_t u - nu Lap u + (u.grad)u + grad p.
+
+| parameter | default | meaning |
+|---|---|---|
+| `layer_switch_kappa1` | 0.5 | lambda = kappa1/sqrt(nu) of NSE1 |
+| `layer_switch_kappa2` | 0.75 | mu = kappa2/sqrt(nu) of NSE2 |
+| `layer_switch_scale_nse2` | true | scale NSE2 by kappa1/kappa2 |
+| `layer_switch_c1`, `layer_switch_c` | 0.3, 0.5 | NSE1 switched off on [c1, c] (absolute times) |
+| `layer_switch_d`, `layer_switch_d2` | 0.5, 0.7 | NSE2 switched on on [d, d2] |
+
+With c = d (default) both factors vanish at t = c, so u(c) = 0: all refinement can disappear
+before the new layers form. With c > d (e.g. `--set layer_switch_d=0.4 layer_switch_c=0.6`) both
+layer systems are present on (d, c). The input files use nu = 1e-4 (layer widths 1/lambda = 0.020,
+1/mu = 0.013, peak velocities 19.5 (NSE1) and 20.9 (A_2 NSE2)), [0, 1], adaptive meshes and time steps:
+
+```bash
+python3 $S --program tnse --base $E/tnse2d_adaptive_spg_layer_switch_a.dat --name switch_a
+python3 $S --program tnse --base $E/tnse2d_adaptive_spg_layer_switch_b.dat --name switch_b
+python3 $S --program tnse --base $E/tnse2d_adaptive_spg_layer_switch_a.dat --name overlap_a \
+    --set layer_switch_d=0.4 layer_switch_c=0.6
+```
+
+Checked: the header compiled on its own and compared with sympy at 84 points and times (both
+variants, before, during and after the switch): u, its derivatives and Laplacian, p and its
+derivatives and f agree to 2e-14, div u = 0 exactly, u = 0 on the boundary; NSE1 equals
+`Oseen_AAJ_layers.h`; invalid switch times stop with an error. ParMooN runs both variants (short
+windows at the start and across t = 0.5). Uniform meshes, variant a, t in [0.40, 0.42] (NSE1 being
+switched off, d_t u != 0), dt = 1e-3: L2(u) 0.204 / 0.068 / 0.015 and E_kin/E_kin_exact - 1
+= -16 % / -3.0 % / -0.46 % for h = 1/32, 1/64, 1/128 (the layer, width 0.02, is resolved only on
+the last). The pressure error in the table (L2(p) about 240) does not decrease with h; the same
+happens for example 23 (L2(p) 1.0 / 1.4 for h = 1/16, 1/64 while L2(u) drops by a factor 60), so it
+is a property of how `tnse2d_adaptive_spg` reports the pressure, not of this example (open).
 
 ## Example 2: translating vortex with compact support (example 32)
 
