@@ -3,6 +3,8 @@
 #include "BaseCell.h"
 #include "Collection.h"
 #include "MooNMD_Io.h"
+#include "Vertex.h"
+#include <fstream>
 #include <algorithm>
 #include <iomanip>
 
@@ -19,6 +21,10 @@ ParameterDatabase AdaptiveTimeLoop::default_database()
   db.add("adaptive_output_time", 0.1, "interval for mesh output (PostScript, "
          "needs output_write_ps) and system output (vtk, needs output_write_vtk; "
          "files <output_directory>/<output_basename>.<index>.vtk)", 0., 1.e10);
+  db.add("adaptive_write_mesh", true, "write the mesh at the start and at every "
+         "output time as <output_directory>/<output_basename>_mesh_t<time>.vtk "
+         "(cell data: refinement level, diameter, eta_K) and, with "
+         "output_write_ps, as mesh_t<time>.ps");
   db.merge(TrapezoidalAB2::default_database(), true);
   return db;
 }
@@ -39,10 +45,21 @@ AdaptiveTimeLoop::AdaptiveTimeLoop(TDomain& dom, const ParameterDatabase& param_
                   ? (int) param_db["refinement_n_initial_steps"] : 0;
   write_ps = param_db.contains("output_write_ps")
              ? (bool) param_db["output_write_ps"] : false;
+  write_mesh = db["adaptive_write_mesh"];
+  {
+    std::string dir = param_db.contains("output_directory")
+                      ? param_db["output_directory"].value_as_string() : "";
+    std::string base = param_db.contains("output_basename")
+                       ? param_db["output_basename"].value_as_string() : "";
+    if(!base.empty() && base.back() != '_')
+      base += "_";
+    mesh_prefix = (dir.empty() ? std::string() : dir + "/") + base + "mesh_t";
+  }
   system = factory();
   system->initialize();
   next_output = integrator.get_time() + output_every;
   output_index = 0;
+  write_mesh_files(integrator.get_time(), false); // initial mesh
   system->output(output_index++); // initial condition
   table << "# time  dt  cells  dofs  eta  error  effectivity  n_marked_refine"
            "  n_marked_coarsen";
@@ -65,6 +82,71 @@ AdaptiveTimeLoop::AdaptiveTimeLoop(TDomain& dom, const ParameterDatabase& param_
     table_file.open(file);
     table_file << table.str() << std::flush;
   }
+}
+
+void AdaptiveTimeLoop::write_mesh_files(double t, bool with_eta)
+{
+  std::ostringstream ts;
+  ts << std::fixed << std::setprecision(3) << t;
+  if(write_ps)
+    domain.PS(("mesh_t" + ts.str() + ".ps").c_str(), It_Finest, 0);
+  if(!write_mesh)
+    return;
+  // every cell with its own vertices (no global numbering needed); ParaView:
+  // "Surface With Edges", colour by level
+  const TCollection* coll = system->get_collection();
+  const int n_cells = coll->GetN_Cells();
+  int n_points = 0;
+  for(int c = 0; c < n_cells; ++c)
+    n_points += coll->GetCell(c)->GetN_Vertices();
+  const std::string name = mesh_prefix + ts.str() + ".vtk";
+  std::ofstream f(name);
+  if(!f)
+  {
+    Output::warn("AdaptiveTimeLoop", "cannot write the mesh file ", name,
+                 " (does the output directory exist?)");
+    return;
+  }
+  f << "# vtk DataFile Version 3.0\nParMooN adaptive mesh, t = "
+    << std::setprecision(12) << t << ", " << n_cells << " cells\nASCII\n"
+    << "DATASET UNSTRUCTURED_GRID\nPOINTS " << n_points << " double\n";
+  for(int c = 0; c < n_cells; ++c)
+  {
+    const TBaseCell* cell = coll->GetCell(c);
+    for(int v = 0; v < cell->GetN_Vertices(); ++v)
+    {
+      double x, y;
+      cell->GetVertex(v)->GetCoords(x, y);
+      f << x << " " << y << " 0\n";
+    }
+  }
+  f << "CELLS " << n_cells << " " << n_cells + n_points << "\n";
+  int offset = 0;
+  for(int c = 0; c < n_cells; ++c)
+  {
+    const int nv = coll->GetCell(c)->GetN_Vertices();
+    f << nv;
+    for(int v = 0; v < nv; ++v)
+      f << " " << offset + v;
+    f << "\n";
+    offset += nv;
+  }
+  f << "CELL_TYPES " << n_cells << "\n";
+  for(int c = 0; c < n_cells; ++c)
+    f << (coll->GetCell(c)->GetN_Vertices() == 3 ? 5 : 9) << "\n";
+  f << "CELL_DATA " << n_cells << "\nSCALARS level int 1\nLOOKUP_TABLE default\n";
+  for(int c = 0; c < n_cells; ++c)
+    f << coll->GetCell(c)->GetGeoLevel() << "\n";
+  f << "SCALARS diameter double 1\nLOOKUP_TABLE default\n";
+  for(int c = 0; c < n_cells; ++c)
+    f << coll->GetCell(c)->GetDiameter() << "\n";
+  if(with_eta && (int) estimator.get_eta_K().size() == n_cells)
+  {
+    f << "SCALARS eta_K double 1\nLOOKUP_TABLE default\n";
+    for(int c = 0; c < n_cells; ++c)
+      f << estimator.get_eta_K(c) << "\n";
+  }
+  Output::print<2>("mesh written to ", name);
 }
 
 void AdaptiveTimeLoop::run()
@@ -122,12 +204,7 @@ void AdaptiveTimeLoop::run()
     if(t >= next_output - 1e-12)
     {
       next_output += output_every;
-      if(write_ps)
-      {
-        std::ostringstream name;
-        name << "mesh_t" << std::fixed << std::setprecision(3) << t << ".ps";
-        domain.PS(name.str().c_str(), It_Finest, 0);
-      }
+      write_mesh_files(t, true);
       system->output(output_index++);
     }
 

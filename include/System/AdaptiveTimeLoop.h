@@ -96,7 +96,11 @@ class AdaptiveTimeLoop
     std::unique_ptr<AdaptiveTimeSystem> system;
     std::ostringstream table;
     std::ofstream table_file;
-    bool adaptive, coarsening, write_ps;
+    bool adaptive, coarsening, write_ps, write_mesh;
+    std::string mesh_prefix;
+    /// @brief write the current mesh (PostScript if output_write_ps, VTK file
+    /// with the cell data level, diameter and eta_K if adaptive_write_mesh)
+    void write_mesh_files(double t, bool with_eta);
     double tol1, tol2, output_every, next_output;
     int initial_level, output_index;
     size_t max_level;

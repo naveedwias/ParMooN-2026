@@ -55,7 +55,8 @@ These inputs follow the manuscript: periodic averaging, U^0 = L2 projection of u
 |---|---|
 | `<input name>_table.txt` | one line per accepted time step: time, dt, cells, DoFs, eta, error (SUPG/SPG norm), effectivity, cells marked for refinement and coarsening, L2(u), H1(u) and, for Navier-Stokes, L2(div u), L2(p); written and flushed after every step, so it can be watched during a long run and survives an interrupted one |
 | `<input name>.out` | ParMooN log |
-| `mesh_t<time>.ps` | mesh at every `adaptive_output_time` (CD Examples 3-5, NSE Example 2; needs `output_write_ps: true`) |
+| `mesh_t<time>.ps` | mesh at the start and at every `adaptive_output_time` (needs `output_write_ps: true`); the scripts draw them into `<prefix>_meshes.<format>` |
+| `vtk/<basename>_mesh_t<time>.vtk` | the same meshes as VTK unstructured grids (`adaptive_write_mesh`, default true), with the cell data `level` (refinement level), `diameter` and `eta_K` (local estimator of the step, not at t = 0); in ParaView: Surface With Edges, colour by `level` or `eta_K`. Kept by the scripts in `<prefix>_files/<run>/vtk/` |
 | `vtk/<basename><index>.vtk` | solution and discrete time derivative (and pressure) at the same times |
 
 ## The same runs through the script, with figures
@@ -211,6 +212,8 @@ python3 $S --program tnse --base $E/tnse2d_adaptive_spg_layer_switch_a.dat --nam
     --set layer_switch_d=0.4 layer_switch_c=0.6
 ```
 
+Every 0.05 the runs write the mesh, as `vtk/<prefix>_mesh_t<time>.vtk` (cell data `level`, `diameter`, `eta_K`) and as `mesh_t<time>.ps`, together with the solution. The script keeps them in `<prefix>_files/<run>/` and draws the PostScript meshes into `<prefix>_meshes.<format>`, so you can follow the refinement moving from x = 1, y = 1 to the new walls.
+
 Checked: the header compiled on its own and compared with sympy at 84 points and times (both
 variants, before, during and after the switch): u, its derivatives and Laplacian, p and its
 derivatives and f agree to 2e-14, div u = 0 exactly, u = 0 on the boundary; NSE1 equals
@@ -292,6 +295,7 @@ The averaging is unchanged. The BE step restarts its counter, so the first avera
 | `trab2_averaging` | `periodic` (default): every n* steps as in Gresho et al. (2008) and the manuscript; `on_demand`: n* steps after the start and after mesh changes only (my variant, not from the literature) |
 | `trab2_averaging_steps` | n*, 10 by default; 0 switches averaging off |
 | `adaptive_output_time` | interval of mesh and vtk output |
+| `adaptive_write_mesh` | `true` (default): write the mesh at the start and at every output time as `<output_directory>/<output_basename>_mesh_t<time>.vtk` (cell data level, diameter, eta_K) |
 | `tnse_initial_value` | `l2_projection` (default, manuscript): L2 projection of u_0; `consistent_projection`: stabilized equations at the start time with the exact time derivative; `interpolation`: nodal interpolant |
 | `trab2_first_step` | `semidiscrete` (default): TR from the start, with the initial time derivative from the semidiscrete problem; `backward_euler`: the first step is a backward Euler step, which needs no initial time derivative and damps the inconsistent part of the initial value (Rannacher's idea); accepted without an error estimate, keeps the proposed step size; NSE program only |
 | `trab2_be_after_mesh_change` | `false` (default); `true`: the first step after every mesh change is a backward Euler step as well |
@@ -328,6 +332,7 @@ Source: `src/System/AdaptiveTimeLoop.C`
 | `adaptive_coarsening` | `true` | - | coarsening on/off |
 | `adaptive_max_cell_level` | `30` | range [1u, 100u] | maximal refinement level of a cell |
 | `adaptive_output_time` | `0.1` | range [0., 1e10] | interval for mesh output (PostScript, needs output_write_ps) and system output (vtk, needs output_write_vtk; files <output_directory>/<output_basename>.<index>.vtk) |
+| `adaptive_write_mesh` | `true` | true or false | write the mesh at the start and at every output time as <output_directory>/<output_basename>_mesh_t<time>.vtk (cell data: refinement level, diameter, eta_K) and, with output_write_ps, as mesh_t<time>.ps |
 
 ### TR-AB2 time integrator (both adaptive programs)
 

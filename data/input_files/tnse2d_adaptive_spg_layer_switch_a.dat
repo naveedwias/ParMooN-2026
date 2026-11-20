@@ -35,7 +35,9 @@ adaptive_mesh: true
 adaptive_tol1: 5.0e-3
 adaptive_tol2: 2.5e-4
 adaptive_max_cell_level: 9
-adaptive_output_time: 0.1
+# meshes (vtk/<basename>_mesh_t<time>.vtk, mesh_t<time>.ps) and solutions every 0.05
+adaptive_output_time: 0.05
+adaptive_write_mesh: true
 tnse_write_table: tnse2d_adaptive_spg_layer_switch_a_table.txt
 trab2_averaging: periodic
 output_write_ps: true
