@@ -145,6 +145,7 @@ void NSE_SPG_ErrorEstimator::estimate(const Example_NSE2D& ex,
   this->currentCollection = coll;
   const int n_cells = coll->GetN_Cells();
   this->eta_K.assign(n_cells, 0.);
+  this->error_K.clear();
   this->maximal_local_error = 0.;
   this->estimated_global_error = 0.;
 
@@ -614,6 +615,16 @@ void NSE_SPG_ErrorEstimator::estimate(const Example_NSE2D& ex,
     this->maximal_local_error = std::max(this->maximal_local_error,
                                          this->eta_K[cellIdx]);
 
+    if(has_exact_solution)
+    {
+      // local error in the norm of error_spg (for checking the indicators)
+      double eK2 = nu*err_grad + err_sigma + muK*err_div + deltaK*err_supg;
+      if(is_nse && !transient)
+        eK2 += nu*err_p;
+      if(this->error_K.empty())
+        this->error_K.assign(n_cells, 0.);
+      this->error_K[cellIdx] = std::sqrt(eK2);
+    }
     error_parts[0] += nu * err_grad;
     error_parts[1] += err_sigma;
     error_parts[2] += muK * err_div;

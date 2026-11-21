@@ -31,6 +31,12 @@ ParameterDatabase AdaptiveTimeLoop::default_database()
          "mesh changes that coarsen (default false: after every mesh change; "
          "skipping it after refinements makes the step control oscillate for "
          "small trab2_tolt)");
+  db.add("adaptive_remesh_min_steps", 1u, "the time loop changes the mesh "
+         "at most every this many time steps (1: whenever cells are marked)",
+         1u, 1000u);
+  db.add("adaptive_remesh_force_factor", 0., "change the mesh before "
+         "adaptive_remesh_min_steps steps have passed if a cell has eta_K > "
+         "this factor * adaptive_tol1 (0: never)", 0., 1.e10);
   db.add("adaptive_initial_mesh", true, "adapt the mesh to the initial "
          "condition before the first step (with adaptive_mesh): project u_0, "
          "estimate (Navier-Stokes: after a trial backward Euler step of "
@@ -43,7 +49,8 @@ ParameterDatabase AdaptiveTimeLoop::default_database()
          "steps of the initial mesh adaptation", 0u, 100u);
   db.add("adaptive_write_mesh", true, "write the mesh at the start and at every "
          "output time as <output_directory>/<output_basename>_mesh_t<time>.vtk "
-         "(cell data: refinement level, diameter, eta_K) and, with "
+         "(cell data: refinement level, diameter, eta_K and, with an exact "
+         "solution, the local error error_K) and, with "
          "output_write_ps, as mesh_t<time>.ps");
   db.merge(TrapezoidalAB2::default_database(), true);
   return db;
@@ -77,6 +84,9 @@ AdaptiveTimeLoop::AdaptiveTimeLoop(TDomain& dom, const ParameterDatabase& param_
   }
   coarsen_fraction = db["adaptive_coarsening_min_fraction"];
   be_only_after_coarsening = db["adaptive_be_only_after_coarsening"];
+  remesh_min_steps = db["adaptive_remesh_min_steps"];
+  remesh_force_factor = db["adaptive_remesh_force_factor"];
+  steps_since_remesh = 0;
   initial_adaptation = db["adaptive_initial_mesh"];
   initial_max_steps = db["adaptive_initial_max_steps"];
   system = factory();
@@ -247,6 +257,14 @@ void AdaptiveTimeLoop::write_mesh_files(double t, bool with_eta)
     f << "SCALARS eta_K double 1\nLOOKUP_TABLE default\n";
     for(int c = 0; c < n_cells; ++c)
       f << estimator.get_eta_K(c) << "\n";
+    // exact local error in the estimator's norm (examples with exact solution)
+    const std::vector<double>& eK = estimator.get_error_K();
+    if((int) eK.size() == n_cells)
+    {
+      f << "SCALARS error_K double 1\nLOOKUP_TABLE default\n";
+      for(int c = 0; c < n_cells; ++c)
+        f << eK[c] << "\n";
+    }
   }
   Output::print<2>("mesh written to ", name);
 }
@@ -324,6 +342,17 @@ void AdaptiveTimeLoop::run()
                                                     initial_level);
       remesh = n_par > 0 && 4.*n_par >= coarsen_fraction*n_cells;
     }
+    // at most every remesh_min_steps steps (each remesh is followed by a
+    // backward Euler step and disturbs the step control), unless a cell
+    // exceeds remesh_force_factor * TOL1
+    ++steps_since_remesh;
+    if(remesh && steps_since_remesh < remesh_min_steps)
+    {
+      const bool force = remesh_force_factor > 0.
+        && estimator.get_maximal_local_error() > remesh_force_factor*tol1;
+      if(!force)
+        remesh = false;
+    }
     if(adaptive && remesh)
     {
       auto state = system->record_state();
@@ -339,6 +368,7 @@ void AdaptiveTimeLoop::run()
       new_system->copy_time_state(*system);
       new_system->apply_state(state);
       system = std::move(new_system);
+      steps_since_remesh = 0;
       // a perturbation only if the mesh has changed (the transfer to the same
       // mesh is exact)
       if(n_marked > 0 || n_derefined > 0

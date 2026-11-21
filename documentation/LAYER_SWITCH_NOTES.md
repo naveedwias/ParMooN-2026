@@ -315,6 +315,52 @@ Full runs over [0, 1] (checked):
 
 B needs 15-30 % fewer steps and has neither the oscillation nor the pressure spike; at TOLT = 1e-5 its L2(u) at t = 1 is somewhat larger (first-order steps). `adaptive_be_only_after_coarsening` now defaults to false (B). The earlier preference for (b) came from TOLT = 1e-3, where the backward Euler steps froze a large dt.
 
+### 3.14 Check of the error estimator
+
+**Code.** `NSE_SPG_ErrorEstimator.C` was read against the formulas in its header (checked). The cell residual is r_K = f - U_t + nu Lap u_h - (u_h.grad)u_h - grad p_h, with U_t the discrete time derivative of the integrator, evaluated at the current time. The facet residual is the jump of (-nu grad u_h + p_h I) n; on the red-green meshes the leaf neighbour of an edge is searched correctly. eta_K collects eta_res, eta_delta, eta_mu, the cell's share of the global div term and half of its interior facet terms. The constants of the transient bound (320, 160, 640, 320/|U|^2) could not be checked against the manuscript here (no copy of the transient bound available; open).
+
+**What the estimator measures.** U_t comes from the time integrator, so r_K is the residual of the semidiscrete equation at the current time. The estimator measures the spatial error in the SPG norm at that time; time error, and error carried over from earlier times, are not seen by construction. That is why eta did not react to the time error after the switch (3.11-3.12). It is the intended split (TOLT controls the time error), not a bug.
+
+**Numbers** (uniform meshes, TOLT = 1e-5, nu = 1e-3). The estimator now also stores the exact local error error_K in the same norm, and the mesh files write it next to eta_K.
+
+| run | h | eta | error | eta/error |
+|---|---|---|---|---|
+| steady, t = 0.02 | 1/8 | 48.2 | 1.61 | 29.9 |
+| | 1/16 | 20.6 | 0.737 | 27.9 |
+| | 1/32 | 5.83 | 0.227 | 25.7 |
+| | 1/64 | 1.66 | 0.0655 | 25.4 |
+| switch, t = 0.6 | 1/32 | 5.10 | 0.213 | 24.0 |
+| | 1/64 | 1.58 | 0.0668 | 23.6 |
+
+| run | cells | Spearman(eta_K, error_K) | overlap of the top 10 % cells | error^2 in the top 10 % eta_K cells (best possible) | eta_K/error_K, 10-90 % |
+|---|---|---|---|---|---|
+| steady, h = 1/32 | 2048 | 1.00 | 0.95 | 0.98 (0.98) | 18-25 |
+| steady, h = 1/64 | 8192 | 1.00 | 0.96 | 0.98 (0.99) | 19-27 |
+| switch, h = 1/64 | 8192 | 1.00 | 0.97 | 0.99 (0.99) | 18-24 |
+
+The estimator is reliable and efficient here: eta and error decrease at the same rate (about a factor 3.5 per level), the effectivity is bounded and settles at about 24-25, also during the switch. The local indicators rank the cells almost exactly like the true local errors, so marking by eta_K selects practically the cells that marking by the error would select (checked). The size of the effectivity comes from the constants of the bound (C = 1 with 320, 640, ...); it is a fixed scale, which only shifts the meaning of TOL1.
+
+### 3.15 Remeshing frequency and the pressure spikes
+
+New parameters (time loop):
+- `adaptive_remesh_min_steps` (default 1): change the mesh at most every m time steps.
+- `adaptive_remesh_force_factor` (default 0, off): remesh earlier if some eta_K > F * TOL1.
+
+Example 36, t in [0.3, 0.75], TOLT = 1e-5 (checked):
+
+| m | steps | remeshes | BE steps | rejected | sum of abs. changes of log L2(p) | L2(u)(0.75) | L2(p)(0.75) |
+|---|---|---|---|---|---|---|---|
+| 1 | 556 | 151 | 152 | 61 | 129 | 6.0e-3 | 3.1e-3 |
+| 5 | 704 | 93 | 94 | 111 | 179 | 6.5e-3 | 2.9e-3 |
+| 10 | 585 | 48 | 49 | 95 | 128 | 5.8e-3 | 2.7e-3 |
+| 5, F = 4 | 720 | 99 | 100 | 108 | 172 | 5.7e-3 | 3.0e-3 |
+
+Less frequent remeshing does not help: each remesh then changes more cells, and more steps are rejected afterwards; the pressure noise does not decrease. The default stays m = 1 (the parameters are kept for other problems).
+
+The pressure noise has a clear structure (checked): spikes appear in the backward Euler step right after a mesh change (e.g. L2(p) 2.8e-3 -> 1.4e-2 -> 3.4e-3) and decay within one or two steps; between remeshes the trapezoidal steps vary by about 10 %. Mechanism (plausible): the transferred velocity violates the discrete constraint of the new mesh; the backward Euler step removes that part, and the pressure, the multiplier of the constraint, takes an error of size (inconsistent part)/k in that step. The end values are not affected.
+
+Recommended next step (not implemented): after each transfer, project the velocity onto the discretely divergence-free space of the new mesh (one linear solve with the saddle point matrix). That should remove both the pressure spike and the need for the backward Euler step after a mesh change.
+
 ### Running the spatial study
 
 From the build folder:
@@ -335,7 +381,11 @@ Parts can be run on their own, e.g. `bash ../ParMooN-2026/scripts/run_layer_swit
 
 `TDomain::RefineAndCoarsen` read `collection->GetCell(0)` after the derefinement. When the parent of cell 0 was derefined, it read a deleted cell and crashed. This was a pre-existing bug, found with a debug build at the first large coarsening (1826 parents). Fixed: the shape is read before the derefinement. The 2D adaptive tests pass. The 3D test was not built.
 
-## 4. Open points
+## 4. Final parameter settings
+
+Set in the input files of examples 36 and 37: nu = 1e-3, TOL1 = 2.5e-2, TOL2 = 1.25e-3, TOLT = 1e-5, backward Euler step after every mesh change, remesh whenever cells are marked (3.12-3.15). Confirmation runs to t = 1: see the table added below when they are finished.
+
+## 5. Open points
 
 - **Time error after the switch** (3.12, 3.13): TOLT = 1e-4 is not small enough for L2(u); with the default of 3.13, TOLT = 1e-5 runs without oscillation (621 steps).
 - **Pressure noise while the mesh is coarsened** (t of about 0.38-0.5): L2(p) jumps by a factor of about 3 from step to step in both variants of 3.13, so not caused by the missing backward Euler step (open; probably the frequent remeshing).

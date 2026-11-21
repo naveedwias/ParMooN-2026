@@ -27,6 +27,9 @@ class ErrorEstimator
   
     const TCollection* currentCollection;
     std::vector<double> eta_K;
+    /// exact local error in the estimator's norm, if the estimator computes it
+    /// (empty otherwise); used to check the local indicators
+    std::vector<double> error_K;
     double maximal_local_error;
     double estimated_global_error;
     ParameterDatabase db;
@@ -44,6 +47,8 @@ class ErrorEstimator
     double get_eta_K(int cell_index) const
     { return eta_K.at(cell_index); }
 
+    const std::vector<double>& get_error_K() const
+    { return error_K; }
     double get_maximal_local_error() const 
     { return maximal_local_error; }
     

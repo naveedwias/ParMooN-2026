@@ -30,15 +30,16 @@ time_start: 0.0
 time_end: 1.0
 time_step_length: 1.0e-3
 trab2_adaptive: true
-# TOLT: on the steady interval 1e-3 is enough (3.7), but after the layer switch the time
-# error of 1e-3 dominates; 1e-4 cuts L2(u) about 3 times (LAYER_SWITCH_NOTES.md, 3.11)
-trab2_tolt: 1.0e-4
+# TOLT = 1e-5: after the layer switch the time error of 1e-4 still dominates L2(u)
+# (LAYER_SWITCH_NOTES.md, 3.12; final settings: section 4)
+trab2_tolt: 1.0e-5
 trab2_dt0: 1.0e-4
 trab2_dt_max: 0.01
 adaptive_mesh: true
-# TOL1 ~ eta/sqrt(cells): eta ~ 16, about 1.5e4 cells (ADAPTIVE_RUNS.md, examples 36, 37)
-adaptive_tol1: 5.0e-2
-adaptive_tol2: 2.5e-3
+# TOL1 = 2.5e-2, TOL2 = TOL1/20: spatial error about 30 % below TOL1 = 5e-2 for about
+# 50 % more cells (LAYER_SWITCH_NOTES.md, 3.12; final settings: section 4)
+adaptive_tol1: 2.5e-2
+adaptive_tol2: 1.25e-3
 adaptive_max_cell_level: 9
 # meshes (vtk/<basename>_mesh_t<time>.vtk, mesh_t<time>.ps) and solutions every 0.05
 adaptive_output_time: 0.05
@@ -72,3 +73,7 @@ layer_switch_c1: 0.3
 layer_switch_c: 0.5
 layer_switch_d: 0.5
 layer_switch_d2: 0.7
+# remesh whenever cells are marked, backward Euler step after every mesh change
+# (defaults; LAYER_SWITCH_NOTES.md 3.13, 3.14)
+adaptive_remesh_min_steps: 1
+adaptive_be_only_after_coarsening: false
