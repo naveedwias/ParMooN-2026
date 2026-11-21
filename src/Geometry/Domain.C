@@ -5,6 +5,7 @@
 
 #include <Database.h>
 #include <Domain.h>
+#include <unordered_set>
 #include <JointEqN.h>
 #include <MacroCell.h>
 #include <MooNMD_Io.h>
@@ -1244,60 +1245,81 @@ std::vector<TBaseCell*> TDomain::derefinable_parents(
         all_coarsen = false;
         break;
       }
-      // keep the grid 1-irregular: a child that borders a refined cell (or a
-      // cell marked for refinement) would leave the parent next to cells two
-      // levels finer, and Gen1RegGrid would refine the parent again at once
-      // (the derefinement would only be counted, not done)
-      for(int j = 0; j < child->GetN_Joints() && all_coarsen; j++)
-      {
-        const TJoint* joint = child->GetJoint(j);
-        TBaseCell* nb = joint ? joint->GetNeighbour(child) : nullptr;
-        if(nb == nullptr || nb->GetParent() == parent)
-          continue;
-        const int nb_idx = nb->GetClipBoard();
-        const bool nb_leaf_marked = nb_idx >= 0 && nb_idx < n_cells
-                                    && collection->GetCell(nb_idx) == nb
-                                    && refine[nb_idx];
-        if(nb->ExistChildren() || nb_leaf_marked)
-          all_coarsen = false;
-      }
-      if(!all_coarsen)
-        break;
-    }
-    // conforming closure: a cell with two or more regularly refined
-    // neighbours (or neighbours marked for refinement) is refined regularly
-    // again by MakeConfClosure, so its derefinement would be undone at once
-    if(all_coarsen && conforming)
-    {
-      int n_refined_neighbours = 0;
-      for(int j = 0; j < parent->GetN_Joints(); j++)
-      {
-        const TJoint* joint = parent->GetJoint(j);
-        TBaseCell* nb = joint ? joint->GetNeighbour(parent) : nullptr;
-        if(nb == nullptr)
-          continue;
-        bool refined = false;
-        if(nb->ExistChildren())
-        {
-          Refinements t = nb->GetRefDesc()->GetType();
-          refined = (t == TriReg || t == QuadReg);
-        }
-        else
-        {
-          const int nb_idx = nb->GetClipBoard();
-          refined = nb_idx >= 0 && nb_idx < n_cells
-                    && collection->GetCell(nb_idx) == nb && refine[nb_idx];
-        }
-        if(refined)
-          n_refined_neighbours++;
-      }
-      if(n_refined_neighbours >= 2)
-        all_coarsen = false;
     }
     if(all_coarsen)
       to_derefine.push_back(parent);
   }
 
+  // Remove the parents whose derefinement the closure would undo at once.
+  // Neighbours that are derefined in the same pass do not count, so the check
+  // is repeated until the set of parents does not change (otherwise the
+  // inside of a refined region could never be coarsened).
+  std::unordered_set<const TBaseCell*> set(to_derefine.begin(), to_derefine.end());
+  auto marked_leaf = [&](const TBaseCell* c)
+  {
+    const int i = c->GetClipBoard();
+    return i >= 0 && i < n_cells && collection->GetCell(i) == c && refine[i];
+  };
+  // refined after this pass: refined now and not derefined, or marked
+  auto stays_refined = [&](const TBaseCell* c)
+  { return c->ExistChildren() ? set.count(c) == 0 : marked_leaf(c); };
+  auto blocked = [&](TBaseCell* parent)
+  {
+    // 1-irregularity: a child next to a cell that stays refined would leave
+    // the parent next to cells two levels finer
+    for(int c = 0; c < parent->GetN_Children(); c++)
+    {
+      const TBaseCell* child = parent->GetChild(c);
+      for(int j = 0; j < child->GetN_Joints(); j++)
+      {
+        const TJoint* joint = child->GetJoint(j);
+        const TBaseCell* nb = joint ? joint->GetNeighbour(child) : nullptr;
+        if(nb != nullptr && nb->GetParent() != parent && stays_refined(nb))
+          return true;
+      }
+    }
+    // conforming closure: a cell with two or more regularly refined
+    // neighbours is refined regularly again
+    if(conforming)
+    {
+      int n_refined = 0;
+      for(int j = 0; j < parent->GetN_Joints(); j++)
+      {
+        const TJoint* joint = parent->GetJoint(j);
+        const TBaseCell* nb = joint ? joint->GetNeighbour(parent) : nullptr;
+        if(nb == nullptr)
+          continue;
+        bool refined;
+        if(nb->ExistChildren())
+        {
+          Refinements t = nb->GetRefDesc()->GetType();
+          refined = (t == TriReg || t == QuadReg) && set.count(nb) == 0;
+        }
+        else
+          refined = marked_leaf(nb);
+        if(refined && ++n_refined >= 2)
+          return true;
+      }
+    }
+    return false;
+  };
+  bool changed = true;
+  while(changed)
+  {
+    changed = false;
+    std::vector<TBaseCell*> kept;
+    for(TBaseCell* parent : to_derefine)
+    {
+      if(blocked(parent))
+      {
+        set.erase(parent);
+        changed = true;
+      }
+      else
+        kept.push_back(parent);
+    }
+    to_derefine.swap(kept);
+  }
   return to_derefine;
 }
 

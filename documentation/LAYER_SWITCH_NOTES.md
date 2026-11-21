@@ -188,13 +188,42 @@ All three runs: 2 backward Euler steps, no rejected step, 1 remesh. The errors d
 
 Growth of L2(u) on [0, 0.3] (open). The exact solution is steady and the mesh is fixed, yet L2(u) grows from 1.3e-3 to 3.5e-2, about 1.5 times per 0.05 (rate about 8), slowing slightly at the end. The growth is the same for all TOLT. The error in the SPG norm grows only from 0.061 to 0.070, and nothing is refined, so the growing part is smooth and large-scale. Plausible explanation: the steady flow is unstable at Re of about 2e5 (peak velocity 20, nu = 1e-4), and discretization errors are amplified by the flow. To settle it: a run with TOL1 halved (an instability keeps the growth rate) and a run with nu = 1e-3 (the growth should weaken). If it is an instability, the long-time errors of examples 36/37 measure the instability rather than the method.
 
+### 3.8 Instability of the steady flow at nu = 1e-4
+
+Example 36 on [0, 0.3] (TOLT = 1e-3) (checked):
+
+| run | cells | L2(u)(0) | L2(u)(0.3) | growth rate on [0.05, 0.15] | on [0.15, 0.3] |
+|---|---|---|---|---|---|
+| nu = 1e-4, TOL1 = 5e-2 | 12450 | 1.3e-3 | 0.034 | 12.2 | 7.1 |
+| nu = 1e-4, TOL1 = 2.5e-2 | 18750 | 7.1e-4 | 0.020 | 13.6 | 6.7 |
+| nu = 1e-3, TOL1 = 5e-2 | 3770 | 4.8e-4 | 9.1e-4 | 0.38 | 0.36 |
+
+The finer mesh keeps the growth rate and only lowers the starting level. At nu = 1e-3 the growth is essentially gone. So the steady layer flow amplifies small perturbations at nu = 1e-4 (Re about 2e5 with the peak velocity 20); this is not a discretization effect (supported by these runs, not proved). The decreasing rate (13 -> 7) suggests transient (non-normal) amplification or saturation rather than a single unstable mode (plausible).
+
+Consequence: at nu = 1e-4 the long-time errors of examples 36/37 mostly measure this amplification, not the method. nu = 1e-3 (`--set reynolds_number=1e3`, layer widths 0.063 and 0.042) gives errors that judge the method, and the run to t = 0.3 takes about 2 minutes instead of 18 (open: which nu to use).
+
+### 3.9 Switch interval and coarsening
+
+Example 36 over [0.25, 0.75] with the settings of 3.7 (checked) showed two problems:
+
+1. **No coarsening (regression of 3.6, fixed).** The mesh stayed at 12450 cells up to t = 0.51 although eta dropped to 0.02. The rule of 3.6 counted refined neighbours that were derefined in the same pass, so the inside of a refined region could never be coarsened. Now only neighbours that stay refined count, and the check is repeated until the set of derefinable parents does not change.
+
+   Rerun over [0.25, 0.52]: 9770 -> 2006 cells by t = 0.5, 50-430 parents per remesh, dt at dt_max = 0.01 while the layers vanish. L2(u) at t = 0.5 is now 0.091 (0.020 without the coarsening): the estimator (eta 0.17, SPG-norm error 0.067) does not see the growing smooth part of the error, which is amplified by the instability of 3.8 (plausible). The 2D adaptive tests pass.
+
+2. **Frozen step while the new layers form (open).** From t = 0.51 on the loop refines in every step (30-170 cells). Every step is then a backward Euler step that keeps dt = 9.2e-3 without an error estimate. Refinement goes one level per step, the mesh lags behind the forming layers, and the errors grow to L2(u) = 0.31, L2(p) = 0.30 at t = 0.75. Candidate fixes:
+   - (a) estimate the error of the backward Euler step against a forward Euler predictor (risk: right after a remesh the inconsistent part dominates the estimate);
+   - (b) no backward Euler step after remeshes that only refine;
+   - (c) remesh at most every m steps during refinement phases.
+
 ### 3.5 Bug fixed on the way (commit `65c3f59`)
 
 `TDomain::RefineAndCoarsen` read `collection->GetCell(0)` after the derefinement. When the parent of cell 0 was derefined, it read a deleted cell and crashed. This was a pre-existing bug, found with a debug build at the first large coarsening (1826 parents). Fixed: the shape is read before the derefinement. The 2D adaptive tests pass. The 3D test was not built.
 
 ## 4. Open points
 
-- **Growth of L2(u) on the steady interval** (3.7): instability or discretization effect.
+- **Choice of nu** (3.8): nu = 1e-4 is dominated by the instability; nu = 1e-3 judges the method.
+- **Frozen step while layers form** (3.9, item 2).
+- **L2(u) not controlled by the estimator** during coarsening (3.9, item 1).
 - **Steps on the switch interval** with TOLT = 1e-3 (3.7).
 - **Full runs.** Examples 36 and 37 have not been run to t = 1 with the final settings. Check in the meshes that the refinement follows the layers from x = 1, y = 1 to the new walls, and how the cell count behaves on [0.3, 0.7].
 - **Accuracy target.** TOL1 = 5e-2 was chosen from the cell counts. For a smaller error, lower TOL1 and compare.
