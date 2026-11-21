@@ -26,10 +26,11 @@ ParameterDatabase AdaptiveTimeLoop::default_database()
          "the mesh if a cell is marked for refinement or if the children of the "
          "parents that can be derefined are at least this fraction of the "
          "cells (0: any possible derefinement)", 0., 1.);
-  db.add("adaptive_be_only_after_coarsening", true, "with "
+  db.add("adaptive_be_only_after_coarsening", false, "with "
          "trab2_be_after_mesh_change: take the backward Euler step only after "
-         "mesh changes that coarsen; after a pure refinement the trapezoidal "
-         "rule continues with its step size control");
+         "mesh changes that coarsen (default false: after every mesh change; "
+         "skipping it after refinements makes the step control oscillate for "
+         "small trab2_tolt)");
   db.add("adaptive_initial_mesh", true, "adapt the mesh to the initial "
          "condition before the first step (with adaptive_mesh): project u_0, "
          "estimate (Navier-Stokes: after a trial backward Euler step of "
@@ -342,9 +343,11 @@ void AdaptiveTimeLoop::run()
       // mesh is exact)
       if(n_marked > 0 || n_derefined > 0
          || system->get_collection()->GetN_Cells() != n_cells)
-        // a remesh that only refines: the coarse function is represented
-        // exactly on the new mesh, and the backward Euler step (which keeps
-        // the step size) would freeze dt while layers form
+        // also a pure refinement leaves the state inconsistent with the
+        // discrete constraint of the new mesh (more pressure test functions,
+        // new delta_K), so by default every mesh change is followed by a
+        // backward Euler step; without it the step control oscillates for
+        // small TOLT (LAYER_SWITCH_NOTES.md, 3.13)
         integrator.restart_averaging(!(be_only_after_coarsening
                                        && n_derefined == 0));
     }

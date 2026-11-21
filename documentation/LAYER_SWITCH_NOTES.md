@@ -292,6 +292,29 @@ Conclusions:
 
 For spatial convergence studies the time error has to be well below the spatial error: TOLT = 1e-5 (or TOLT decreased together with TOL1), at the cost of more steps. The oscillation of 3 has to be understood first.
 
+### 3.13 Cause of the oscillation of the step control (fixed)
+
+The oscillation of 3.12 comes from the mesh changes (checked). In the TOLT = 1e-5 run, 27 of the 35 steps in which dt dropped by more than half came right after a mesh change, and most of the other 8 are the periodic averaging. Example 36, t in [0.5, 0.65], TOLT = 1e-5:
+
+| run | steps | rejected | BE steps | remeshes | min dt | median dt | max L2(p) | L2(u)(0.65) | mean cells |
+|---|---|---|---|---|---|---|---|---|---|
+| A: no BE after refinements (3.10) | 340 | 100 | 30 | 97 | 1.3e-5 | 3.0e-4 | 4.1e-2 | 5.0e-3 | 1542 |
+| B: BE after every mesh change | 216 | 20 | 91 | 90 | 2.5e-4 | 6.8e-4 | 8.0e-3 | 5.8e-3 | 1333 |
+| C: fixed uniform mesh (level 6) | 53 | 6 | 1 | 0 | 1.2e-4 | 2.9e-3 | 4.2e-3 | 7.4e-3 | 8192 |
+
+Without mesh changes (C) there is no oscillation, so the integrator and its error control are fine. The reasoning behind option (b) in 3.10 was wrong: after a pure refinement the coarse function is represented exactly, but the discrete constraint of the new mesh (more pressure test functions, new delta_K) is not satisfied. The trapezoidal rule carries the inconsistent part with factor -1, the AB2 estimate sees an error that does not decrease with dt, and the step is cut and rejected again and again (plausible mechanism, consistent with all runs). Adaptive meshes with about 1300-1500 cells are as accurate as the uniform mesh with 8192 cells.
+
+Full runs over [0, 1] (checked):
+
+| | steps | dt drops > 2x | min dt | L2(u)(1) | max L2(p) (t > 0.05) | L2(p)(1) |
+|---|---|---|---|---|---|---|
+| A, TOLT 1e-4 | 218 | 6 | 1e-4 | 1.8e-2 | 1.2e-2 | 1.0e-2 |
+| B, TOLT 1e-4 | 184 | 2 | 1e-4 | 1.3e-2 | 1.5e-2 | 7.6e-3 |
+| A, TOLT 1e-5 | 892 | 40 | 3.8e-6 | 6.1e-3 | 7.9e-2 | 2.4e-3 |
+| B, TOLT 1e-5 | 621 | 4 | 1e-4 | 8.2e-3 | 1.3e-2 | 4.3e-3 |
+
+B needs 15-30 % fewer steps and has neither the oscillation nor the pressure spike; at TOLT = 1e-5 its L2(u) at t = 1 is somewhat larger (first-order steps). `adaptive_be_only_after_coarsening` now defaults to false (B). The earlier preference for (b) came from TOLT = 1e-3, where the backward Euler steps froze a large dt.
+
 ### Running the spatial study
 
 From the build folder:
@@ -314,7 +337,8 @@ Parts can be run on their own, e.g. `bash ../ParMooN-2026/scripts/run_layer_swit
 
 ## 4. Open points
 
-- **Time error after the switch** (3.12): TOLT = 1e-4 is not small enough for L2(u); TOLT = 1e-5 helps but makes the step control oscillate after refinements, with pressure spikes.
+- **Time error after the switch** (3.12, 3.13): TOLT = 1e-4 is not small enough for L2(u); with the default of 3.13, TOLT = 1e-5 runs without oscillation (621 steps).
+- **Frequent remeshing** (3.13): about one mesh change every 2-3 steps during the switch, each followed by a first-order step; refining less often would reduce both.
 - **Steps on the switch interval** with TOLT = 1e-3 (3.7).
 - **Full runs.** Examples 36 and 37 have not been run to t = 1 with the final settings. Check in the meshes that the refinement follows the layers from x = 1, y = 1 to the new walls, and how the cell count behaves on [0.3, 0.7].
 - **Accuracy target.** TOL1 = 5e-2 was chosen from the cell counts. For a smaller error, lower TOL1 and compare.
