@@ -325,6 +325,17 @@ class TDomain
      *  conforming closures */
     int MakeConfClosure();
 
+    /// @brief the parents which can be derefined (see RefineAndCoarsen)
+    std::vector<TBaseCell*> derefinable_parents(TCollection* collection,
+                                                const std::vector<bool>& refine,
+                                                const std::vector<bool>& coarsen,
+                                                int min_level);
+    /** @brief number of parents RefineAndCoarsen would derefine with these
+     * marks (all children marked for coarsening, none for refinement, and
+     * the derefinement is not undone by the closure); the grid is unchanged
+     */
+    int N_DerefinableParents(const std::vector<bool>& refine,
+                             const std::vector<bool>& coarsen, int min_level);
     /** @brief adaptive refinement and coarsening of the finest grid.
      *
      * Cells (indexed as in the finest collection) with refine[k] true are

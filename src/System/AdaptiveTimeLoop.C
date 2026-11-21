@@ -22,6 +22,10 @@ ParameterDatabase AdaptiveTimeLoop::default_database()
   db.add("adaptive_output_time", 0.1, "interval for mesh output (PostScript, "
          "needs output_write_ps) and system output (vtk, needs output_write_vtk; "
          "files <output_directory>/<output_basename>.<index>.vtk)", 0., 1.e10);
+  db.add("adaptive_coarsening_min_fraction", 0.05, "the time loop changes "
+         "the mesh if a cell is marked for refinement or if the children of the "
+         "parents that can be derefined are at least this fraction of the "
+         "cells (0: any possible derefinement)", 0., 1.);
   db.add("adaptive_initial_mesh", true, "adapt the mesh to the initial "
          "condition before the first step (with adaptive_mesh): project u_0, "
          "estimate (Navier-Stokes: after a trial backward Euler step of "
@@ -66,6 +70,7 @@ AdaptiveTimeLoop::AdaptiveTimeLoop(TDomain& dom, const ParameterDatabase& param_
       base += "_";
     mesh_prefix = (dir.empty() ? std::string() : dir + "/") + base + "mesh_t";
   }
+  coarsen_fraction = db["adaptive_coarsening_min_fraction"];
   initial_adaptation = db["adaptive_initial_mesh"];
   initial_max_steps = db["adaptive_initial_max_steps"];
   system = factory();
@@ -300,7 +305,20 @@ void AdaptiveTimeLoop::run()
     }
 
     // --- mesh adaptation -------------------------------------------------------
-    if(adaptive && (n_marked > 0 || n_coarsen > 0))
+    // remesh only if a cell is marked for refinement or enough cells are
+    // marked for coarsening: every remesh interpolates the state, which is then
+    // inconsistent with the discrete constraint again; remeshing for a few
+    // coarsened parents in every step stalls the step size control
+    // (counted are the children of the parents that can really be derefined:
+    // marked cells next to refined cells cannot, see RefineAndCoarsen)
+    bool remesh = n_marked > 0;
+    if(adaptive && !remesh && n_coarsen > 0)
+    {
+      const int n_par = domain.N_DerefinableParents(marks_refine, marks_coarsen,
+                                                    initial_level);
+      remesh = n_par > 0 && 4.*n_par >= coarsen_fraction*n_cells;
+    }
+    if(adaptive && remesh)
     {
       auto state = system->record_state();
       int n_derefined = domain.RefineAndCoarsen(marks_refine, marks_coarsen,
@@ -315,7 +333,11 @@ void AdaptiveTimeLoop::run()
       new_system->copy_time_state(*system);
       new_system->apply_state(state);
       system = std::move(new_system);
-      integrator.restart_averaging();
+      // a perturbation only if the mesh has changed (the transfer to the same
+      // mesh is exact)
+      if(n_marked > 0 || n_derefined > 0
+         || system->get_collection()->GetN_Cells() != n_cells)
+        integrator.restart_averaging();
     }
   }
   Output::print("TR-AB2: ", integrator.n_accepted_steps(), " accepted and ",

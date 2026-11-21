@@ -110,7 +110,7 @@ class AdaptiveTimeLoop
     /// @brief write the current mesh (PostScript if output_write_ps, VTK file
     /// with the cell data level, diameter and eta_K if adaptive_write_mesh)
     void write_mesh_files(double t, bool with_eta);
-    double tol1, tol2, output_every, next_output;
+    double tol1, tol2, output_every, next_output, coarsen_fraction;
     int initial_level, output_index;
     size_t max_level;
 };

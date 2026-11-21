@@ -1205,18 +1205,17 @@ void TDomain::RefineByRefinementStrategy(RefinementStrategy<d>& strategy)
   }
   gridCollections.push_front(this->GetCollection(It_Finest, 0));
 }
-int TDomain::RefineAndCoarsen(const std::vector<bool>& refine,
-                              const std::vector<bool>& coarsen, int min_level)
+std::vector<TBaseCell*> TDomain::derefinable_parents(
+  TCollection* collection, const std::vector<bool>& refine,
+  const std::vector<bool>& coarsen, int min_level)
 {
-  TCollection* collection = this->GetCollection(It_Finest, 0);
-  int n_cells = collection->GetN_Cells();
-  if((int) refine.size() != n_cells || (int) coarsen.size() != n_cells)
-    ErrThrow("TDomain::RefineAndCoarsen: marker vectors have wrong length");
+  const int n_cells = collection->GetN_Cells();
   // index of each cell in the finest collection, used to identify siblings
   for(int k = 0; k < n_cells; k++)
     collection->GetCell(k)->SetClipBoard(k);
 
   // find parents which can be derefined
+  const bool conforming = db["conforming_closure"];
   std::vector<TBaseCell*> to_derefine;
   for(int k = 0; k < n_cells; k++)
   {
@@ -1245,10 +1244,85 @@ int TDomain::RefineAndCoarsen(const std::vector<bool>& refine,
         all_coarsen = false;
         break;
       }
+      // keep the grid 1-irregular: a child that borders a refined cell (or a
+      // cell marked for refinement) would leave the parent next to cells two
+      // levels finer, and Gen1RegGrid would refine the parent again at once
+      // (the derefinement would only be counted, not done)
+      for(int j = 0; j < child->GetN_Joints() && all_coarsen; j++)
+      {
+        const TJoint* joint = child->GetJoint(j);
+        TBaseCell* nb = joint ? joint->GetNeighbour(child) : nullptr;
+        if(nb == nullptr || nb->GetParent() == parent)
+          continue;
+        const int nb_idx = nb->GetClipBoard();
+        const bool nb_leaf_marked = nb_idx >= 0 && nb_idx < n_cells
+                                    && collection->GetCell(nb_idx) == nb
+                                    && refine[nb_idx];
+        if(nb->ExistChildren() || nb_leaf_marked)
+          all_coarsen = false;
+      }
+      if(!all_coarsen)
+        break;
+    }
+    // conforming closure: a cell with two or more regularly refined
+    // neighbours (or neighbours marked for refinement) is refined regularly
+    // again by MakeConfClosure, so its derefinement would be undone at once
+    if(all_coarsen && conforming)
+    {
+      int n_refined_neighbours = 0;
+      for(int j = 0; j < parent->GetN_Joints(); j++)
+      {
+        const TJoint* joint = parent->GetJoint(j);
+        TBaseCell* nb = joint ? joint->GetNeighbour(parent) : nullptr;
+        if(nb == nullptr)
+          continue;
+        bool refined = false;
+        if(nb->ExistChildren())
+        {
+          Refinements t = nb->GetRefDesc()->GetType();
+          refined = (t == TriReg || t == QuadReg);
+        }
+        else
+        {
+          const int nb_idx = nb->GetClipBoard();
+          refined = nb_idx >= 0 && nb_idx < n_cells
+                    && collection->GetCell(nb_idx) == nb && refine[nb_idx];
+        }
+        if(refined)
+          n_refined_neighbours++;
+      }
+      if(n_refined_neighbours >= 2)
+        all_coarsen = false;
     }
     if(all_coarsen)
       to_derefine.push_back(parent);
   }
+
+  return to_derefine;
+}
+
+int TDomain::N_DerefinableParents(const std::vector<bool>& refine,
+                                  const std::vector<bool>& coarsen, int min_level)
+{
+  TCollection* collection = this->GetCollection(It_Finest, 0);
+  if((int) refine.size() != collection->GetN_Cells()
+     || (int) coarsen.size() != collection->GetN_Cells())
+    ErrThrow("TDomain::N_DerefinableParents: marker vectors have wrong length");
+  const int n = (int) derefinable_parents(collection, refine, coarsen,
+                                          min_level).size();
+  delete collection;
+  return n;
+}
+
+int TDomain::RefineAndCoarsen(const std::vector<bool>& refine,
+                              const std::vector<bool>& coarsen, int min_level)
+{
+  TCollection* collection = this->GetCollection(It_Finest, 0);
+  int n_cells = collection->GetN_Cells();
+  if((int) refine.size() != n_cells || (int) coarsen.size() != n_cells)
+    ErrThrow("TDomain::RefineAndCoarsen: marker vectors have wrong length");
+  std::vector<TBaseCell*> to_derefine
+    = derefinable_parents(collection, refine, coarsen, min_level);
 
   // the shape is read before the derefinement: afterwards the collection may
   // point to deleted cells (e.g. cell 0, if its parent is derefined)

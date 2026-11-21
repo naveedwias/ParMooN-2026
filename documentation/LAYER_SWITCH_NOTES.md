@@ -40,7 +40,7 @@ Directly, without the script (the outputs land in the current folder and in `vtk
 ./parMooN_tnse2d_adaptive_spg_SEQUENTIAL $E/tnse2d_adaptive_spg_layer_switch_b.dat
 ```
 
-Switching off the new features, e.g. to reproduce the old behaviour: `--set adaptive_initial_mesh=false`, `--set trab2_first_step=semidiscrete`, `--set adaptive_write_mesh=false`.
+Switching off the new features, e.g. to reproduce the old behaviour: `--set adaptive_initial_mesh=false`, `--set trab2_first_step=semidiscrete`, `--set adaptive_write_mesh=false`, `--set adaptive_coarsening_min_fraction=0`.
 
 ### Output of a script run
 
@@ -139,11 +139,40 @@ The loop stops when the number of cells changes by less than 0.5 %, or after the
 |---|---|---|---|---|---|---|
 | none (512 cells) | - | 512 | 361 | 12.3 | 1.04 | 8.57 |
 | adapted, estimate at u_0 (superseded) | 10 (limit) | 21282 | 4.8 | 0.045 | 4.7e-4 | 1.1e-2 |
-| adapted, estimate after the trial step (current) | 6 | 9766 | 1.8 | 0.062 | 1.3e-3 | 3.7e-2 |
+| adapted, estimate after the trial step | 6 | 9766 | 1.8 | 0.062 | 1.3e-3 | 3.7e-2 |
+| the same with the derefinement fix of 3.6 (current) | 6 | 12450 | - | 0.061 | 1.3e-3 | 3.2e-2 |
 
 At t = 0.001 (current version): L2(u) = 1.5e-3 and L2(p) = 3.8e-3. The first time steps change the mesh by only a few dozen parents.
 
 Convection-diffusion Example 3 (no constraint, u_0 estimated directly): eta goes from 0.28 (1250 cells) to 0.031 (9355 cells) in 6 steps.
+
+### 3.6 Time adaptivity (commit after `91e04ba`)
+
+**Problem (checked).** The step size control did not work in examples 36 and 37. Example 36, t in [0, 0.02]: all 200 steps were backward Euler steps with dt = 1e-4 fixed, and the mesh changed in every step.
+
+**Cause (checked).**
+- The time loop remeshed whenever a single cell was marked for coarsening.
+- After every mesh change the integrator took a backward Euler step (`trab2_be_after_mesh_change: true`, set in 3.1). A backward Euler step is accepted without an error estimate and keeps the step size, and it also restarts the averaging counter.
+- Without that setting the control did run, but the interpolation to a new mesh in every step brought back the inconsistent stiff part. dt then collapsed to about 1.5e-5 and the pressure was polluted again (L2(p) up to 5e-2).
+- Most of these "mesh changes" did not change the mesh at all. `RefineAndCoarsen` derefined parents that the closure refined again at once: a triangle with two or more regularly refined neighbours is refined regularly by the conforming closure, and with hanging nodes `Gen1RegGrid` does the same next to finer cells. The log said "44 parents derefined" while the mesh kept 9374 cells.
+
+**Fix (option A).**
+- `RefineAndCoarsen` derefines a parent only if the closure will not undo it. New function `TDomain::N_DerefinableParents` counts these parents without changing the grid.
+- The time loop remeshes only if a cell is marked for refinement, or if the children of the derefinable parents make up at least `adaptive_coarsening_min_fraction` of the cells (new parameter, default 0.05; 0 gives the old behaviour).
+- The backward Euler step and the averaging restart follow a remesh only if the mesh really changed.
+
+**Result, example 36, t in [0, 0.05] (checked):**
+
+| | before | now (input files: backward Euler after a remesh) | now, without it |
+|---|---|---|---|
+| steps | 200 by t = 0.02 | 85 | 99 |
+| backward Euler steps | 200 | 2 | 1 |
+| rejected steps | 0 | 0 | 3 |
+| mesh changes | 200 | 1 | 1 |
+| dt | 1e-4 fixed | 1e-4 growing to about 1.3e-3 | the same |
+| L2(p) at t = 0.05 | - | 8.4e-3 | 8.4e-3 |
+
+dt grows only to about 1e-3, not to `trab2_dt_max` = 0.01, although the exact solution is steady until t = 0.3. The step is limited by TOLT = 1e-5 (estimates 2e-6 to 6e-6 per step; plausible). L2(u) grows slowly, from 1.3e-3 to 3.5e-3 by t = 0.05 (open: probably the drift of the discrete solution towards its own steady state).
 
 ### 3.5 Bug fixed on the way (commit `65c3f59`)
 
@@ -151,6 +180,7 @@ Convection-diffusion Example 3 (no constraint, u_0 estimated directly): eta goes
 
 ## 4. Open points
 
+- **Time step limit.** Check over [0, 0.3] whether dt reaches a sensible size; if TOLT = 1e-5 keeps it near 1e-3, consider a larger TOLT.
 - **Full runs.** Examples 36 and 37 have not been run to t = 1 with the final settings. Check in the meshes that the refinement follows the layers from x = 1, y = 1 to the new walls, and how the cell count behaves on [0.3, 0.7].
 - **Accuracy target.** TOL1 = 5e-2 was chosen from the cell counts. For a smaller error, lower TOL1 and compare.
 - **Effectivity.** The effectivity index (eta/error) is about 30 at the start of example 36 and still about 27 on fixed meshes. It is not mesh-independent here.
