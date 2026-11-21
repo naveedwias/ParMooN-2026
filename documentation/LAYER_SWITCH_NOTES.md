@@ -42,6 +42,17 @@ Directly, without the script (the outputs land in the current folder and in `vtk
 
 Switching off the new features, e.g. to reproduce the old behaviour: `--set adaptive_initial_mesh=false`, `--set trab2_first_step=semidiscrete`, `--set adaptive_write_mesh=false`, `--set adaptive_coarsening_min_fraction=0`.
 
+Figure of the time step, the number of cells and the errors over time (from the two runs above):
+
+```bash
+python3 ../ParMooN-2026/scripts/layer_switch_plot.py \
+    tnse_layer_switch_x0y0/tnse_layer_switch_x0y0_runs.jsonl:switch_a:"example 36" \
+    tnse_layer_switch_x1y0/tnse_layer_switch_x1y0_runs.jsonl:switch_b:"example 37" \
+    --out layer_switch_time_step
+```
+
+It writes `layer_switch_time_step.png` and `.pdf`. In the dt panel, the dips to dt/2 every 10 steps are the periodic averaging (the effective step of an averaged step is k/2), not rejections.
+
 ### Output of a script run
 
 The script writes to `tnse_layer_switch_x0y0/` (example 36) or `tnse_layer_switch_x1y0/` (example 37). The files of a run are in `<prefix>_files/<run>/`.
