@@ -101,7 +101,8 @@ class AdaptiveTimeLoop
     std::unique_ptr<AdaptiveTimeSystem> system;
     std::ostringstream table;
     std::ofstream table_file;
-    bool adaptive, coarsening, write_ps, write_mesh, initial_adaptation;
+    bool adaptive, coarsening, write_ps, write_mesh, initial_adaptation,
+         be_only_after_coarsening;
     size_t initial_max_steps;
     /// @brief adapt the initial mesh to the initial condition: initialize,
     /// estimate, refine/coarsen as in the time loop, until nothing changes

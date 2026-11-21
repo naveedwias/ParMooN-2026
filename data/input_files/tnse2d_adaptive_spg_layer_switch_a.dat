@@ -20,7 +20,9 @@ solver_type: direct
 direct_solver_type: umfpack
 VELOCITY_SPACE: 2
 PRESSURE_SPACE: 1
-reynolds_number: 1.0e4
+# nu = 1e-3: at nu = 1e-4 the steady layer flow amplifies perturbations (growth
+# rate about 10, LAYER_SWITCH_NOTES.md 3.8) and the errors measure that, not the method
+reynolds_number: 1.0e3
 NSTYPE: 14
 LAPLACETYPE: 0
 NSE_NONLINEAR_FORM: 0
@@ -60,7 +62,8 @@ tnse_dt_alpha: 0.5
 # time1 = 1 on [0, c1], 0 after c; time2 = 0 before d, A_2 = kappa1/kappa2 after d2.
 # c = d: u = 0 at t = c (hand-over through zero); for an overlap of both layer systems
 # set e.g. layer_switch_d: 0.4 and layer_switch_c: 0.6.
-# nu = 1e-4 (reynolds_number 1e4): layer widths 1/lambda = 0.020, 1/mu = 0.013
+# nu = 1e-3 (reynolds_number 1e3): layer widths 1/lambda = 0.063, 1/mu = 0.042, peak velocities
+# about 4.1 (NSE1) and 4.9 (A_2 NSE2); nu = 1e-4 (stress test, unstable): 0.020, 0.013, 19.5, 20.9
 layer_switch_kappa1: 0.5
 layer_switch_kappa2: 0.75
 layer_switch_scale_nse2: true

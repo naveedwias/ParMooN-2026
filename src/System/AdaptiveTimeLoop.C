@@ -26,6 +26,10 @@ ParameterDatabase AdaptiveTimeLoop::default_database()
          "the mesh if a cell is marked for refinement or if the children of the "
          "parents that can be derefined are at least this fraction of the "
          "cells (0: any possible derefinement)", 0., 1.);
+  db.add("adaptive_be_only_after_coarsening", true, "with "
+         "trab2_be_after_mesh_change: take the backward Euler step only after "
+         "mesh changes that coarsen; after a pure refinement the trapezoidal "
+         "rule continues with its step size control");
   db.add("adaptive_initial_mesh", true, "adapt the mesh to the initial "
          "condition before the first step (with adaptive_mesh): project u_0, "
          "estimate (Navier-Stokes: after a trial backward Euler step of "
@@ -71,6 +75,7 @@ AdaptiveTimeLoop::AdaptiveTimeLoop(TDomain& dom, const ParameterDatabase& param_
     mesh_prefix = (dir.empty() ? std::string() : dir + "/") + base + "mesh_t";
   }
   coarsen_fraction = db["adaptive_coarsening_min_fraction"];
+  be_only_after_coarsening = db["adaptive_be_only_after_coarsening"];
   initial_adaptation = db["adaptive_initial_mesh"];
   initial_max_steps = db["adaptive_initial_max_steps"];
   system = factory();
@@ -337,7 +342,11 @@ void AdaptiveTimeLoop::run()
       // mesh is exact)
       if(n_marked > 0 || n_derefined > 0
          || system->get_collection()->GetN_Cells() != n_cells)
-        integrator.restart_averaging();
+        // a remesh that only refines: the coarse function is represented
+        // exactly on the new mesh, and the backward Euler step (which keeps
+        // the step size) would freeze dt while layers form
+        integrator.restart_averaging(!(be_only_after_coarsening
+                                       && n_derefined == 0));
     }
   }
   Output::print("TR-AB2: ", integrator.n_accepted_steps(), " accepted and ",

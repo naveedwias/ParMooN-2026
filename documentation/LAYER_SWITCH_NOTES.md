@@ -62,7 +62,7 @@ File `include/Examples/TNSE_2D/TNSE_layer_switch.h`, examples 36 and 37 in `Exam
   - NSE1: layers at x = 1 and y = 1 (width 1/lambda = 0.020).
   - NSE2: layers 1.5 times thinner (width 0.013), scaled to the same peak velocity. Example 36: at x = 0 and y = 0. Example 37: at x = 1 and y = 0.
 - u(t) = time1(t) NSE1 + time2(t) NSE2 with C^2 smooth switches: NSE1 is switched off on [0.3, 0.5], NSE2 is switched on on [0.5, 0.7].
-- nu = 1e-4, domain (0, 1)^2, homogeneous Dirichlet data, f computed from the exact solution.
+- nu = 1e-3 in the input files (since 3.10; nu = 1e-4 before), domain (0, 1)^2, homogeneous Dirichlet data, f computed from the exact solution. The layer widths above are for nu = 1e-4; at nu = 1e-3 they are 0.063 and 0.042.
 - Checked: the formulas against sympy at 84 points and times (difference 2e-14); div u = 0; u = 0 on the boundary.
 
 ## 3. What was changed, and why
@@ -215,15 +215,39 @@ Example 36 over [0.25, 0.75] with the settings of 3.7 (checked) showed two probl
    - (b) no backward Euler step after remeshes that only refine;
    - (c) remesh at most every m steps during refinement phases.
 
+### 3.10 nu = 1e-3 and no backward Euler step after pure refinement
+
+Following 3.8 and 3.9, the input files of examples 36 and 37 now use nu = 1e-3 (`reynolds_number: 1.0e3`): layer widths 0.063 and 0.042, peak velocities about 4.1 (NSE1) and 4.9 (A_2 NSE2). nu = 1e-4 stays available as a stress test (`--set reynolds_number=1e4`).
+
+New parameter `adaptive_be_only_after_coarsening` (default true): with `trab2_be_after_mesh_change`, the backward Euler step follows only mesh changes that coarsen. After a pure refinement the coarse function is represented exactly on the new mesh, and the trapezoidal rule continues with its step size control (only the averaging is restarted).
+
+Example 36, nu = 1e-3, t in [0.45, 0.75] (new layers form on [0.5, 0.7]) (checked):
+
+| | backward Euler only after coarsening (new) | after every mesh change (old) |
+|---|---|---|
+| backward Euler steps | 16 of 46 | 35 of 44 |
+| max L2(u) | 0.012 | 0.035 |
+| max L2(p) | 0.013 | 0.056 |
+| max error | 0.060 | 0.072 |
+
+Full runs with the committed input files, through the study script (checked):
+
+| | steps | wall time | cells (min-max) | max L2(u) | max L2(p) | max error | L2(u)(1) |
+|---|---|---|---|---|---|---|---|
+| example 36 | 116 | 3 min | 826-3610 | 0.040 | 0.027 | 0.070 | 0.040 |
+| example 37 | 116 | 3 min | 704-3610 | 0.037 | 0.026 | 0.061 | 0.037 |
+
+Example 36 in detail: dt = 0.01 (dt_max) on the steady interval, down to 8.5e-3 and 5e-3 when the new layers form; 3610 cells on [0, 0.3], 826 at t = 0.5, 1980 from t = 0.7 on. The meshes at t = 0, 0.05, ..., 1 are in `<prefix>_files/switch_a/vtk/`.
+
+Open: L2(u) rises from 9e-4 (t = 0.3) to 0.032 (t = 0.5) while the old layers vanish and the mesh is coarsened, and it stays at 0.035-0.040 afterwards. The estimator does not see this part (eta 0.04 at t = 0.5). Plausible: the interpolation to the coarsened mesh leaves a smooth velocity error that decays only on the viscous time scale. To check: a smaller TOL2 (less coarsening) and its effect on L2(u) after t = 0.5.
+
 ### 3.5 Bug fixed on the way (commit `65c3f59`)
 
 `TDomain::RefineAndCoarsen` read `collection->GetCell(0)` after the derefinement. When the parent of cell 0 was derefined, it read a deleted cell and crashed. This was a pre-existing bug, found with a debug build at the first large coarsening (1826 parents). Fixed: the shape is read before the derefinement. The 2D adaptive tests pass. The 3D test was not built.
 
 ## 4. Open points
 
-- **Choice of nu** (3.8): nu = 1e-4 is dominated by the instability; nu = 1e-3 judges the method.
-- **Frozen step while layers form** (3.9, item 2).
-- **L2(u) not controlled by the estimator** during coarsening (3.9, item 1).
+- **L2(u) after coarsening** (3.10): the error left by the coarsening phase is not seen by the estimator; check a smaller TOL2.
 - **Steps on the switch interval** with TOLT = 1e-3 (3.7).
 - **Full runs.** Examples 36 and 37 have not been run to t = 1 with the final settings. Check in the meshes that the refinement follows the layers from x = 1, y = 1 to the new walls, and how the cell count behaves on [0.3, 0.7].
 - **Accuracy target.** TOL1 = 5e-2 was chosen from the cell counts. For a smaller error, lower TOL1 and compare.

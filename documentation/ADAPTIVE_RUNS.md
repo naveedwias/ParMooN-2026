@@ -202,8 +202,8 @@ is divergence-free, and the pressure has zero mean; f = d_t u - nu Lap u + (u.gr
 
 With c = d (default) both factors vanish at t = c, so u(c) = 0: all refinement can disappear
 before the new layers form. With c > d (e.g. `--set layer_switch_d=0.4 layer_switch_c=0.6`) both
-layer systems are present on (d, c). The input files use nu = 1e-4 (layer widths 1/lambda = 0.020,
-1/mu = 0.013, peak velocities 19.5 (NSE1) and 20.9 (A_2 NSE2)), [0, 1], adaptive meshes and time steps:
+layer systems are present on (d, c). The input files use nu = 1e-3 (layer widths 1/lambda = 0.063,
+1/mu = 0.042, peak velocities 4.1 (NSE1) and 4.9 (A_2 NSE2)), [0, 1], adaptive meshes and time steps. At nu = 1e-4 (`--set reynolds_number=1e4`) the steady flow amplifies perturbations (LAYER_SWITCH_NOTES.md, 3.8):
 
 ```bash
 python3 $S --program tnse --base $E/tnse2d_adaptive_spg_layer_switch_a.dat --name switch_a
@@ -320,6 +320,7 @@ The averaging is unchanged. The BE step restarts its counter, so the first avera
 | `trab2_averaging_steps` | n*, 10 by default; 0 switches averaging off |
 | `adaptive_output_time` | interval of mesh and vtk output |
 | `adaptive_coarsening_min_fraction` | `0.05` (default): the time loop remeshes only if a cell is marked for refinement or if the children of the parents that can really be derefined are at least this fraction of the cells; `0`: any possible derefinement (old behaviour). Each remesh interpolates the state and disturbs the step size control |
+| `adaptive_be_only_after_coarsening` | `true` (default): with `trab2_be_after_mesh_change`, the backward Euler step follows only mesh changes that coarsen; after a pure refinement the trapezoidal rule continues with its step size control |
 | `adaptive_initial_mesh` | `true` (default): adapt the mesh to u_0 before the first step (refine/coarsen with the time-loop rule until the mesh changes by less than 0.5 %; Navier-Stokes: estimate after a discarded trial backward Euler step); `false`: start on the initial mesh |
 | `adaptive_initial_max_steps` | maximal number of steps of the initial adaptation (default 10) |
 | `adaptive_write_mesh` | `true` (default): write the mesh at the start and at every output time as `<output_directory>/<output_basename>_mesh_t<time>.vtk` (cell data level, diameter, eta_K) |
@@ -360,6 +361,7 @@ Source: `src/System/AdaptiveTimeLoop.C`
 | `adaptive_max_cell_level` | `30` | range [1u, 100u] | maximal refinement level of a cell |
 | `adaptive_output_time` | `0.1` | range [0., 1e10] | interval for mesh output (PostScript, needs output_write_ps) and system output (vtk, needs output_write_vtk; files <output_directory>/<output_basename>.<index>.vtk) |
 | `adaptive_coarsening_min_fraction` | `0.05` | range [0., 1.] | the time loop changes the mesh if a cell is marked for refinement or if the children of the parents that can be derefined are at least this fraction of the cells (0: any possible derefinement) |
+| `adaptive_be_only_after_coarsening` | `true` | true or false | with trab2_be_after_mesh_change: take the backward Euler step only after mesh changes that coarsen; after a pure refinement the trapezoidal rule continues with its step size control |
 | `adaptive_initial_mesh` | `true` | true or false | adapt the mesh to the initial condition before the first step (with adaptive_mesh): project u_0, estimate (Navier-Stokes: after a trial backward Euler step of the first step size, which is discarded), refine and coarsen as in the time loop (adaptive_tol1, adaptive_tol2, adaptive_max_cell_level), repeat until the number of cells changes by less than 0.5 % or adaptive_initial_max_steps is reached |
 | `adaptive_initial_max_steps` | `10` | range [0, 100] | maximal number of refinement steps of the initial mesh adaptation |
 | `adaptive_write_mesh` | `true` | true or false | write the mesh at the start and at every output time as <output_directory>/<output_basename>_mesh_t<time>.vtk (cell data: refinement level, diameter, eta_K) and, with output_write_ps, as mesh_t<time>.ps |

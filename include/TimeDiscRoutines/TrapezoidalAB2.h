@@ -105,10 +105,11 @@ class TrapezoidalAB2
     /// @brief the state has been perturbed (e.g. transferred to a new mesh):
     /// in 'on_demand' mode the next averaging (after n* steps) is enabled; with
     /// trab2_be_after_mesh_change the next step is a backward Euler step
-    void restart_averaging()
+    /// (be_step = false: the perturbation needs no backward Euler step)
+    void restart_averaging(bool be_step = true)
     {
       averaging_pending = true;
-      if(be_after_mesh_change)
+      if(be_after_mesh_change && be_step)
         be_pending = true;
     }
 
