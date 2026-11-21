@@ -273,6 +273,25 @@ Open: even with TOLT = 1e-4, L2(u) after the switch (1.1e-2 to 1.8e-2) is 10-20 
 
 Figures: `scripts/layer_switch_plot.py` (quantities over time, several runs) and `scripts/layer_switch_convergence.py` (maximum over time against the mean DoFs, with observed orders).
 
+### 3.12 TOLT = 1e-5 and the TOL1 series at TOLT = 1e-4
+
+Runs of `scripts/run_layer_switch_study.sh` (parts `time` and `adaptive`), example 36, nu = 1e-3 (checked):
+
+| run | steps | mean DoFs | L2(u)(0.3) | L2(u)(0.5) | L2(u)(1) | max L2(p) | L2(p)(1) | error(1) |
+|---|---|---|---|---|---|---|---|---|
+| TOLT 1e-3, TOL1 5e-2 | 116 | 12115 | 9.2e-4 | 3.2e-2 | 4.0e-2 | 2.7e-2 | 2.0e-2 | 6.9e-2 |
+| TOLT 1e-4, TOL1 5e-2 | 218 | 10639 | 9.5e-4 | 1.1e-2 | 1.8e-2 | 2.6e-2 | 1.0e-2 | 5.9e-2 |
+| TOLT 1e-5, TOL1 5e-2 | 892 | 9648 | 9.2e-4 | 2.2e-3 | 6.1e-3 | 7.9e-2 | 2.4e-3 | 4.7e-2 |
+| TOLT 1e-4, TOL1 2.5e-2 | 190 | 15736 | 5.0e-4 | 1.6e-2 | 2.5e-2 | 1.8e-2 | 1.4e-2 | 4.3e-2 |
+| TOLT 1e-4, TOL1 1.25e-2 | 173 | 22153 | 3.0e-4 | 1.3e-2 | 1.1e-2 | 9.6e-3 | 2.7e-3 | 2.4e-2 |
+
+Conclusions:
+1. **The time error still dominates L2(u) at TOLT = 1e-4.** TOLT = 1e-5 lowers L2(u) after the switch 3-5 times more (6.1e-3 at t = 1), at 4 times the steps.
+2. **The error in the SUPG/PSPG norm converges with TOL1** (5.9e-2, 4.3e-2, 2.4e-2 at t = 1, at TOLT = 1e-4). L2(u) and L2(p) do not decrease monotonically, because their time part is of the same size as the spatial part.
+3. **The step control oscillates at TOLT = 1e-5** during the switch: dt jumps between about 1e-4 and 4e-6, L2(p) is noisy, and it spikes to 7.9e-2 at t of about 0.617. There the mesh is refined in several consecutive tiny steps (2159 -> 3048 cells within 5e-5 time units). Plausible cause: after a pure refinement (no backward Euler step, 3.10) the trapezoidal rule carries the inconsistent part of the new mesh, and with a small TOLT the estimate reacts to it (open).
+
+For spatial convergence studies the time error has to be well below the spatial error: TOLT = 1e-5 (or TOLT decreased together with TOL1), at the cost of more steps. The oscillation of 3 has to be understood first.
+
 ### Running the spatial study
 
 From the build folder:
@@ -295,7 +314,7 @@ Parts can be run on their own, e.g. `bash ../ParMooN-2026/scripts/run_layer_swit
 
 ## 4. Open points
 
-- **Error after the switch** (3.11): with TOLT = 1e-4 still 10-20 times the level before; check TOLT = 1e-5 and the convergence in TOL1 with the study script.
+- **Time error after the switch** (3.12): TOLT = 1e-4 is not small enough for L2(u); TOLT = 1e-5 helps but makes the step control oscillate after refinements, with pressure spikes.
 - **Steps on the switch interval** with TOLT = 1e-3 (3.7).
 - **Full runs.** Examples 36 and 37 have not been run to t = 1 with the final settings. Check in the meshes that the refinement follows the layers from x = 1, y = 1 to the new walls, and how the cell count behaves on [0.3, 0.7].
 - **Accuracy target.** TOL1 = 5e-2 was chosen from the cell counts. For a smaller error, lower TOL1 and compare.
