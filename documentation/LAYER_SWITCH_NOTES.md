@@ -252,13 +252,50 @@ Example 36 in detail: dt = 0.01 (dt_max) on the steady interval, down to 8.5e-3 
 
 Open: L2(u) rises from 9e-4 (t = 0.3) to 0.032 (t = 0.5) while the old layers vanish and the mesh is coarsened, and it stays at 0.035-0.040 afterwards. The estimator does not see this part (eta 0.04 at t = 0.5). Plausible: the interpolation to the coarsened mesh leaves a smooth velocity error that decays only on the viscous time scale. To check: a smaller TOL2 (less coarsening) and its effect on L2(u) after t = 0.5.
 
+### 3.11 Three checks of the error after the switch
+
+Example 36, nu = 1e-3, full runs over [0, 1], each compared with the baseline (TOL1 = 5e-2, TOL2 = 2.5e-3, TOLT = 1e-3) (checked):
+
+| run | steps | cells | L2(u)(0.3) | L2(u)(0.5) | L2(u)(1) | max L2(p) | L2(p)(1) | error(1) |
+|---|---|---|---|---|---|---|---|---|
+| baseline | 116 | 742-3610 | 9.2e-4 | 3.2e-2 | 4.0e-2 | 2.7e-2 | 2.0e-2 | 6.9e-2 |
+| TOLT = 1e-4 | 218 | 657-3610 | 9.5e-4 | 1.1e-2 | 1.8e-2 | 2.6e-2 | 1.0e-2 | 5.9e-2 |
+| TOL2 = 2.5e-4 | 115 | 1593-3772 | 9.1e-4 | 2.5e-2 | 3.9e-2 | 4.0e-2 | 1.9e-2 | 6.9e-2 |
+| TOL1 = 2.5e-2 | 113 | 1023-5459 | 5.0e-4 | 3.5e-2 | 3.0e-2 | 2.0e-2 | 9.5e-3 | 4.4e-2 |
+| TOL1 = 1.25e-2 | 114 | 1302-7466 | 3.2e-4 | 3.6e-2 | 4.1e-2 | 4.2e-2 | 1.9e-2 | 5.1e-2 |
+
+Conclusions:
+1. **Time error.** After the switch the time error of TOLT = 1e-3 dominates. TOLT = 1e-4 cuts L2(u) about 3 times at t = 0.5 and halves L2(p) at t = 1; dt then drops to 5e-4 during the switch. The TOLT study of 3.7 covered only the steady interval. The input files now use TOLT = 1e-4.
+2. **Coarsening.** Less coarsening removes only the first jump at t of about 0.35. The rise at 0.45-0.5 and the level afterwards are unchanged, so coarsening is not the main cause (this corrects the guess in 3.10).
+3. **Spatial convergence.** Before the switch the error decreases with TOL1 (L2(u)(0.3) 9.2e-4, 5.0e-4, 3.2e-4 at about 12k, 18k, 25k mean DoFs). After the switch it does not, because the time error (TOLT = 1e-3 in these runs) dominates.
+
+Open: even with TOLT = 1e-4, L2(u) after the switch (1.1e-2 to 1.8e-2) is 10-20 times the level before. Whether TOLT = 1e-5 lowers it further, and whether the error then converges with TOL1, is what `scripts/run_layer_switch_study.sh` (parts `time` and `adaptive`) measures.
+
+Figures: `scripts/layer_switch_plot.py` (quantities over time, several runs) and `scripts/layer_switch_convergence.py` (maximum over time against the mean DoFs, with observed orders).
+
+### Running the spatial study
+
+From the build folder:
+
+```bash
+bash ../ParMooN-2026/scripts/run_layer_switch_study.sh
+```
+
+It runs, for example 36 (`EX=b` for 37):
+- `uniform`: uniform meshes, levels 4-7 (`LEVELS=...`), no mesh adaptation;
+- `adaptive`: TOL1 = 5e-2, 2.5e-2, 1.25e-2 with TOL2 = TOL1/20;
+- `time`: TOLT = 1e-3, 1e-4, 1e-5 at TOL1 = 5e-2;
+- `plots`: for each study `<prefix>_<study>_time.png` (dt, cells, errors, eta over time) and `<prefix>_<study>_maxt.png/.txt` (maximum over time against the DoFs).
+
+Parts can be run on their own, e.g. `bash ../ParMooN-2026/scripts/run_layer_switch_study.sh uniform plots`. The uniform and adaptive studies use `TOLT=1e-4` (environment variable). Finished runs are skipped. Level 7 (32768 cells) to t = 1 takes long; start with `LEVELS=4,5,6`.
+
 ### 3.5 Bug fixed on the way (commit `65c3f59`)
 
 `TDomain::RefineAndCoarsen` read `collection->GetCell(0)` after the derefinement. When the parent of cell 0 was derefined, it read a deleted cell and crashed. This was a pre-existing bug, found with a debug build at the first large coarsening (1826 parents). Fixed: the shape is read before the derefinement. The 2D adaptive tests pass. The 3D test was not built.
 
 ## 4. Open points
 
-- **L2(u) after coarsening** (3.10): the error left by the coarsening phase is not seen by the estimator; check a smaller TOL2.
+- **Error after the switch** (3.11): with TOLT = 1e-4 still 10-20 times the level before; check TOLT = 1e-5 and the convergence in TOL1 with the study script.
 - **Steps on the switch interval** with TOLT = 1e-3 (3.7).
 - **Full runs.** Examples 36 and 37 have not been run to t = 1 with the final settings. Check in the meshes that the refinement follows the layers from x = 1, y = 1 to the new walls, and how the cell count behaves on [0.3, 0.7].
 - **Accuracy target.** TOL1 = 5e-2 was chosen from the cell counts. For a smaller error, lower TOL1 and compare.
