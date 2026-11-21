@@ -14,7 +14,7 @@
 # Settings (environment variables):
 #   EX=a (example 36, default) or EX=b (example 37)
 #   LEVELS="4,5,6,7"   uniform levels (h = 1/16 ... 1/128); level 7 takes long
-#   TOLT=1e-4          time tolerance of the uniform and adaptive studies; with 1e-3 the time
+#   TOLT=1e-5          time tolerance of the uniform and adaptive studies (final setting); with 1e-3 the time
 #                      error dominates after the layer switch (LAYER_SWITCH_NOTES.md, 3.11)
 #   EXTRA="..."        further key=value settings for all runs, e.g. EXTRA="reynolds_number=1e4"
 # Runs that are already in the store are skipped (transient_study.py); --redo repeats them.
@@ -22,7 +22,7 @@ set -euo pipefail
 
 EX=${EX:-a}
 LEVELS=${LEVELS:-4,5,6,7}
-TOLT=${TOLT:-1e-4}
+TOLT=${TOLT:-1e-5}
 EXTRA=${EXTRA:-}
 R=${R:-../ParMooN-2026}
 S=$R/scripts/transient_study.py

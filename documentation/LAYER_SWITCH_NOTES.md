@@ -383,16 +383,34 @@ Parts can be run on their own, e.g. `bash ../ParMooN-2026/scripts/run_layer_swit
 
 ## 4. Final parameter settings
 
-Set in the input files of examples 36 and 37: nu = 1e-3, TOL1 = 2.5e-2, TOL2 = 1.25e-3, TOLT = 1e-5, backward Euler step after every mesh change, remesh whenever cells are marked (3.12-3.15). Confirmation runs to t = 1: see the table added below when they are finished.
+| parameter | value | reason |
+|---|---|---|
+| `reynolds_number` | 1e3 (nu = 1e-3) | at nu = 1e-4 the steady flow amplifies perturbations (3.8) |
+| `adaptive_tol1`, `adaptive_tol2` | 2.5e-2, 1.25e-3 | spatial error about 30 % below TOL1 = 5e-2 for about 50 % more cells (3.12) |
+| `trab2_tolt` | 1e-5 | the time error of 1e-4 still dominates L2(u) after the switch (3.12) |
+| `trab2_dt_max` | 0.01 | unchanged |
+| `trab2_first_step`, `trab2_be_after_mesh_change` | backward_euler, true | pressure error (3.1) |
+| `adaptive_be_only_after_coarsening` | false (default) | otherwise the step control oscillates (3.13) |
+| `adaptive_remesh_min_steps`, `adaptive_remesh_force_factor` | 1, 0 (defaults) | less frequent remeshing did not help (3.15) |
+| `adaptive_coarsening_min_fraction` | 0.05 (default) | no remeshing for a handful of coarsened parents (3.6) |
+| `adaptive_initial_mesh` | true (default) | resolved start (3.4) |
+
+Confirmation runs with the committed input files, through the study script, to t = 1 (checked):
+
+| | wall time | steps | cells | dt drops > 2x | L2(u)(0.3) | L2(u)(0.5) | L2(u)(1) | max L2(u) | max L2(p) (t > 0.05) | L2(p)(1) | max error | median eta/error |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| example 36 | 12 min | 498 | 535-5459 | 3 | 5.0e-4 | 5.8e-4 | 3.9e-3 | 4.5e-3 | 4.5e-3 | 1.8e-3 | 3.5e-2 | 17 |
+| example 37 | 12 min | 501 | 535-5459 | 5 | 5.0e-4 | 5.8e-4 | 3.7e-3 | 3.9e-3 | 4.5e-3 | 1.9e-3 | 3.4e-2 | 17 |
+| first run of 3.10 (example 36) | 3 min | 116 | 742-3610 | - | 9.2e-4 | 3.2e-2 | 4.0e-2 | 4.0e-2 | 2.7e-2 | 2.0e-2 | 7.0e-2 | - |
+
+Compared with the first run, the maximum L2(u) is 9 times smaller and the maximum L2(p) 6 times smaller, at 4 times the run time. After the switch L2(u) rises from 6e-4 to about 4e-3 (the new layers are thinner, and the time error at TOLT = 1e-5 is not zero; 3.12).
 
 ## 5. Open points
 
-- **Time error after the switch** (3.12, 3.13): TOLT = 1e-4 is not small enough for L2(u); with the default of 3.13, TOLT = 1e-5 runs without oscillation (621 steps).
-- **Pressure noise while the mesh is coarsened** (t of about 0.38-0.5): L2(p) jumps by a factor of about 3 from step to step in both variants of 3.13, so not caused by the missing backward Euler step (open; probably the frequent remeshing).
-- **Frequent remeshing** (3.13): about one mesh change every 2-3 steps during the switch, each followed by a first-order step; refining less often would reduce both.
-- **Steps on the switch interval** with TOLT = 1e-3 (3.7).
-- **Full runs.** Examples 36 and 37 have not been run to t = 1 with the final settings. Check in the meshes that the refinement follows the layers from x = 1, y = 1 to the new walls, and how the cell count behaves on [0.3, 0.7].
-- **Accuracy target.** TOL1 = 5e-2 was chosen from the cell counts. For a smaller error, lower TOL1 and compare.
-- **Effectivity.** The effectivity index (eta/error) is about 30 at the start of example 36 and still about 27 on fixed meshes. It is not mesh-independent here.
-- **Manuscript.** The start of the time stepping (backward Euler first step) and the initial mesh adaptation differ from the algorithm in the manuscript and should be stated there.
-- **Changed results.** Earlier results from the `tnse2d_adaptive_spg_*.dat` files change with the new start step, mainly the pressure columns and fixed-step example 23.
+- **Pressure spikes after a mesh change** (3.15): the first (backward Euler) step after each remesh carries a pressure error of about (inconsistent part)/k, visible as noise in L2(p) while the mesh is coarsened (t of about 0.38-0.5). Recommended: project the transferred velocity onto the discretely divergence-free space of the new mesh; this should also make the backward Euler step after a mesh change unnecessary.
+- **Constants of the transient estimator** (3.14): 320, 160, 640, 320/|U|^2 are taken from the code; they were not checked against the manuscript. The effectivity is bounded (about 17-25 in these runs) but large, which comes from these constants.
+- **Time error and L2 error are not estimated** (3.14): the estimator measures the spatial error in the SPG norm; the time error is controlled only through TOLT, and errors carried over from earlier times are not seen.
+- **Spatial convergence study** (section "Running the spatial study"): uniform levels 4-7 and the TOL1 series with the final TOLT = 1e-5 have not been run here; `scripts/run_layer_switch_study.sh` does it (set `TOLT=1e-5`).
+- **nu = 1e-4** (3.8): unstable steady flow; usable only as a stress test.
+- **Manuscript.** The start of the time stepping (backward Euler first step), the backward Euler step after mesh changes and the initial mesh adaptation differ from the algorithm in the manuscript and should be stated there.
+- **Changed results.** Earlier results from the `tnse2d_adaptive_spg_*.dat` files change with the new start step, mainly the pressure columns and fixed-step example 23; results of all adaptive programs change with the derefinement fix of 3.6/3.9.
