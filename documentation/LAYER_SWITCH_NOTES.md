@@ -338,6 +338,7 @@ Parts can be run on their own, e.g. `bash ../ParMooN-2026/scripts/run_layer_swit
 ## 4. Open points
 
 - **Time error after the switch** (3.12, 3.13): TOLT = 1e-4 is not small enough for L2(u); with the default of 3.13, TOLT = 1e-5 runs without oscillation (621 steps).
+- **Pressure noise while the mesh is coarsened** (t of about 0.38-0.5): L2(p) jumps by a factor of about 3 from step to step in both variants of 3.13, so not caused by the missing backward Euler step (open; probably the frequent remeshing).
 - **Frequent remeshing** (3.13): about one mesh change every 2-3 steps during the switch, each followed by a first-order step; refining less often would reduce both.
 - **Steps on the switch interval** with TOLT = 1e-3 (3.7).
 - **Full runs.** Examples 36 and 37 have not been run to t = 1 with the final settings. Check in the meshes that the refinement follows the layers from x = 1, y = 1 to the new walls, and how the cell count behaves on [0.3, 0.7].

@@ -139,7 +139,11 @@ def main():
     axes[-1].set_xlim(min(t["time"].min() for _, t in runs) - 0.01,
                       max(t["time"].max() for _, t in runs) + 0.01)
     if len(runs) > 1:
-        if panels[0][0] == "dt":
+        if max(len(l) for l, _ in runs) > 18:
+            # long labels: one row below the title, above the panels
+            top.legend(frameon=False, loc="lower left", fontsize=8.5, ncol=len(runs),
+                       bbox_to_anchor=(0.0, 1.22), borderaxespad=0.)
+        elif panels[0][0] == "dt":
             top.legend(frameon=False, loc="lower right", fontsize=8.5, bbox_to_anchor=(1.0, 0.05))
         else:
             axes[-1].legend(frameon=False, loc="best", fontsize=8.5)
