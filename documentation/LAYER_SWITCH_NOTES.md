@@ -174,13 +174,28 @@ Convection-diffusion Example 3 (no constraint, u_0 estimated directly): eta goes
 
 dt grows only to about 1e-3, not to `trab2_dt_max` = 0.01, although the exact solution is steady until t = 0.3. The step is limited by TOLT = 1e-5 (estimates 2e-6 to 6e-6 per step; plausible). L2(u) grows slowly, from 1.3e-3 to 3.5e-3 by t = 0.05 (open: probably the drift of the discrete solution towards its own steady state).
 
+### 3.7 Time tolerance (TOLT)
+
+Example 36 over [0, 0.3], current settings, three values of `trab2_tolt` (checked):
+
+| TOLT | steps | median dt | wall time | L2(u)(0.3) | L2(p)(0.3) | error(0.3) |
+|---|---|---|---|---|---|---|
+| 1e-5 | 199 | 1.5e-3 | 32 min | 0.0357 | 0.0145 | 0.0706 |
+| 1e-4 | 87 | 3.5e-3 | 21 min | 0.0352 | 0.0146 | 0.0704 |
+| 1e-3 | 43 | 1.0e-2 (dt_max) | 18 min | 0.0339 | 0.0150 | 0.0699 |
+
+All three runs: 2 backward Euler steps, no rejected step, 1 remesh. The errors do not depend on TOLT, so they are spatial errors. The input files now use TOLT = 1e-3. On the switch interval [0.3, 0.7] the estimate should reduce the step where the solution changes (plausible; to be checked in the full run).
+
+Growth of L2(u) on [0, 0.3] (open). The exact solution is steady and the mesh is fixed, yet L2(u) grows from 1.3e-3 to 3.5e-2, about 1.5 times per 0.05 (rate about 8), slowing slightly at the end. The growth is the same for all TOLT. The error in the SPG norm grows only from 0.061 to 0.070, and nothing is refined, so the growing part is smooth and large-scale. Plausible explanation: the steady flow is unstable at Re of about 2e5 (peak velocity 20, nu = 1e-4), and discretization errors are amplified by the flow. To settle it: a run with TOL1 halved (an instability keeps the growth rate) and a run with nu = 1e-3 (the growth should weaken). If it is an instability, the long-time errors of examples 36/37 measure the instability rather than the method.
+
 ### 3.5 Bug fixed on the way (commit `65c3f59`)
 
 `TDomain::RefineAndCoarsen` read `collection->GetCell(0)` after the derefinement. When the parent of cell 0 was derefined, it read a deleted cell and crashed. This was a pre-existing bug, found with a debug build at the first large coarsening (1826 parents). Fixed: the shape is read before the derefinement. The 2D adaptive tests pass. The 3D test was not built.
 
 ## 4. Open points
 
-- **Time step limit.** Check over [0, 0.3] whether dt reaches a sensible size; if TOLT = 1e-5 keeps it near 1e-3, consider a larger TOLT.
+- **Growth of L2(u) on the steady interval** (3.7): instability or discretization effect.
+- **Steps on the switch interval** with TOLT = 1e-3 (3.7).
 - **Full runs.** Examples 36 and 37 have not been run to t = 1 with the final settings. Check in the meshes that the refinement follows the layers from x = 1, y = 1 to the new walls, and how the cell count behaves on [0.3, 0.7].
 - **Accuracy target.** TOL1 = 5e-2 was chosen from the cell counts. For a smaller error, lower TOL1 and compare.
 - **Effectivity.** The effectivity index (eta/error) is about 30 at the start of example 36 and still about 27 on fixed meshes. It is not mesh-independent here.

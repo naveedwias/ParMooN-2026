@@ -28,7 +28,8 @@ time_start: 0.0
 time_end: 1.0
 time_step_length: 1.0e-3
 trab2_adaptive: true
-trab2_tolt: 1.0e-5
+# TOLT: 1e-5, 1e-4, 1e-3 gave the same errors on [0, 0.3] (LAYER_SWITCH_NOTES.md, 3.7)
+trab2_tolt: 1.0e-3
 trab2_dt0: 1.0e-4
 trab2_dt_max: 0.01
 adaptive_mesh: true
