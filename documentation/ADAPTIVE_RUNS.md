@@ -245,6 +245,8 @@ switched off, d_t u != 0), dt = 1e-3: L2(u) 0.204 / 0.068 / 0.015 and E_kin/E_ki
 = -16 % / -3.0 % / -0.46 % for h = 1/32, 1/64, 1/128 (the layer, width 0.02, is resolved only on
 the last). These numbers use the backward Euler first step of the input file. Before, the run started with the trapezoidal rule and L2(p) was about 240 for every h (the inconsistent start; see "Pressure error and the start of the trapezoidal rule" below). With the backward Euler step, L2(p) at t = 0.42 is 0.72 / 0.20 / 0.025. `consistent_projection` is worse here: L2(u) 2.8 / 1.0 / 0.13, L2(p) 3.0 / 1.3 / 0.27. On the coarse meshes the steady stabilized problem at Re = 1e4 gives a poor U^0.
 
+The record of the work on these examples (pressure fix, mesh output, tolerances, initial mesh adaptation) is in `LAYER_SWITCH_NOTES.md`.
+
 ## Example 2: translating vortex with compact support (example 32)
 
 With xi = x - c0 - U0 t, r = |xi|, rho = r^2/R^2:
