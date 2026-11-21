@@ -146,7 +146,7 @@ At t = 0.001 (current version): L2(u) = 1.5e-3 and L2(p) = 3.8e-3. The first tim
 
 Convection-diffusion Example 3 (no constraint, u_0 estimated directly): eta goes from 0.28 (1250 cells) to 0.031 (9355 cells) in 6 steps.
 
-### 3.6 Time adaptivity (commit after `91e04ba`)
+### 3.6 Time adaptivity (commit `d09c06a`)
 
 **Problem (checked).** The step size control did not work in examples 36 and 37. Example 36, t in [0, 0.02]: all 200 steps were backward Euler steps with dt = 1e-4 fixed, and the mesh changed in every step.
 
